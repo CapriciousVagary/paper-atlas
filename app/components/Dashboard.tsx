@@ -1,27 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { categories, papers, type Paper } from "../data";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { categories, paperAddedAt, papers, type Paper } from "../data";
 import { FigurePreview } from "./FigurePreview";
 import { SiteHeader } from "./SiteHeader";
 
 type UploadedPaper = Pick<Paper, "slug" | "title" | "category" | "subcategory" | "journal" | "published"> & Partial<Paper>;
 
-export default function Dashboard() {
-  const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("全部方向");
+export default function Dashboard({ initialQuery = "", initialCategory = "全部方向" }: { initialQuery?: string; initialCategory?: string }) {
+  const [query, setQuery] = useState(initialQuery);
+  const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [uploaded, setUploaded] = useState<UploadedPaper[]>([]);
+  const [currentTime] = useState(() => Date.now());
+  const latestSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setQuery(params.get("q") ?? "");
-    setActiveCategory(params.get("category") ?? "全部方向");
     fetch("/api/papers")
       .then((response) => (response.ok ? response.json() : { papers: [] }))
       .then((data) => setUploaded(data.papers ?? []))
       .catch(() => undefined);
-  }, []);
+    if (initialCategory !== "全部方向") window.setTimeout(() => latestSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+  }, [initialCategory]);
 
   const allPapers = useMemo(() => [...papers, ...uploaded] as Paper[], [uploaded]);
   const displayCategories = useMemo(() => {
@@ -41,7 +41,17 @@ export default function Dashboard() {
     const haystack = [paper.title, paper.titleZh, paper.journal, paper.category, paper.subcategory, ...(paper.authors ?? []), ...(paper.keywords ?? [])]
       .filter(Boolean).join(" ").toLowerCase();
     return inCategory && haystack.includes(query.trim().toLowerCase());
-  });
+  }).sort((a, b) => new Date(paperAddedAt(b)).getTime() - new Date(paperAddedAt(a)).getTime()).slice(0, 3);
+
+  function chooseCategory(category: string) {
+    setActiveCategory(category);
+    window.requestAnimationFrame(() => latestSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  function isNewPaper(paper: Paper) {
+    const added = new Date(paperAddedAt(paper)).getTime();
+    return Number.isFinite(added) && currentTime - added <= 3 * 24 * 60 * 60 * 1000;
+  }
 
   return (
     <main>
@@ -81,7 +91,7 @@ export default function Dashboard() {
         </div>
         <div className="category-grid">
           {displayCategories.map((category, index) => (
-            <button className={`category-card ${category.tone} ${activeCategory === category.name ? "selected" : ""}`} key={category.name} onClick={() => setActiveCategory(activeCategory === category.name ? "全部方向" : category.name)}>
+            <button className={`category-card ${category.tone} ${activeCategory === category.name ? "selected" : ""}`} key={category.name} onClick={() => chooseCategory(category.name)}>
               <div className="category-top"><span className="category-number">0{index + 1}</span><span className="category-code">{category.code}</span></div>
               <h3>{category.name}</h3><p>{category.description}</p>
               <div className="subcategory-list">{category.subcategories.map((sub) => <span key={sub}>{sub}</span>)}</div>
@@ -91,17 +101,17 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="latest-section">
+      <section className="latest-section" ref={latestSectionRef}>
         <div className="section-heading">
-          <div><span className="section-kicker">LATEST NOTES</span><h2>{activeCategory === "全部方向" ? "最近整理" : activeCategory}</h2></div>
-          <button className="text-button" onClick={() => { setActiveCategory("全部方向"); setQuery(""); }}>查看全部 <span>→</span></button>
+          <div><span className="section-kicker">LATEST NOTES</span><h2>{activeCategory === "全部方向" ? "最近上传" : `${activeCategory} · 最近上传`}</h2></div>
+          <div className="section-actions">{activeCategory !== "全部方向" && <Link className="category-all-link" href={`/browse?category=${encodeURIComponent(activeCategory)}`}>查看该大类全部</Link>}<Link className="text-button" href="/browse">查看全部论文 <span>→</span></Link></div>
         </div>
         <div className="paper-list">
           {visiblePapers.length ? visiblePapers.map((paper, index) => (
             <article className="paper-card" key={paper.slug}>
               <div className="paper-index">{String(index + 1).padStart(2, "0")}</div>
               <div className="paper-main">
-                <div className="paper-meta"><span>{paper.category}</span><i />{paper.subcategory}<i />{paper.journal} · {paper.published}</div>
+                <div className="paper-meta"><span>{paper.category}</span><i />{paper.subcategory}<i />{paper.journal} · {paper.published}{isNewPaper(paper) && <em className="new-paper-badge">新上传</em>}</div>
                 <h3><Link href={`/papers/${paper.slug}`}>{paper.title}</Link></h3>
                 {paper.titleZh && <p className="paper-title-zh">{paper.titleZh}</p>}
                 <div className="paper-authors">{(paper.authors ?? ["待补充作者"]).join(" · ")}</div>

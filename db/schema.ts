@@ -11,6 +11,7 @@ export const papers = sqliteTable("papers", {
   published: text("published").notNull().default("待补充"),
   authors: text("authors").notNull().default("[]"),
   institutions: text("institutions").notNull().default("[]"),
+  authorDetails: text("author_details").notNull().default("[]"),
   abstractZh: text("abstract_zh").notNull().default(""),
   insight: text("insight").notNull().default(""),
   tags: text("tags").notNull().default("[]"),
@@ -37,3 +38,11 @@ export const comments = sqliteTable("comments", {
   content: text("content").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("comments_paper_slug_idx").on(table.paperSlug)]);
+
+export const institutions = sqliteTable("institutions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  fullName: text("full_name").notNull().unique(),
+  normalizedName: text("normalized_name").notNull(),
+  aliases: text("aliases").notNull().default("[]"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("institutions_normalized_name_idx").on(table.normalizedName)]);

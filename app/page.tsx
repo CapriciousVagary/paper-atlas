@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   description: "Q-chip 课题组共享文献知识库",
 };
 
-export default function Home() {
-  return <Dashboard />;
+export default async function Home({ searchParams }: { searchParams: Promise<{ q?: string; category?: string }> }) {
+  const query = await searchParams;
+  return <Dashboard initialQuery={query.q ?? ""} initialCategory={query.category ?? "全部方向"} />;
 }

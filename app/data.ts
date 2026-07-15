@@ -1,5 +1,14 @@
 import importedPapers from "./imported-papers.json";
 
+export type AuthorRole = "first" | "cofirst" | "corresponding" | "notable" | "other";
+
+export type AuthorDetail = {
+  name: string;
+  role: AuthorRole;
+  institution?: string;
+  note?: string;
+};
+
 export type Paper = {
   slug: string;
   title: string;
@@ -10,6 +19,7 @@ export type Paper = {
   published: string;
   authors: string[];
   institutions: string[];
+  authorDetails?: AuthorDetail[];
   abstractZh: string;
   insight: string;
   keywords: string[];
@@ -21,6 +31,8 @@ export type Paper = {
   sourceUrl?: string;
   doi?: string;
   verificationStatus?: "verified" | "manual";
+  createdAt?: string;
+  addedAt?: string;
   sample?: boolean;
 };
 
@@ -49,5 +61,26 @@ export const categories = [
 ];
 
 export const papers = importedPapers as Paper[];
+
+export const authorRoleLabels: Record<AuthorRole, string> = {
+  first: "第一作者",
+  cofirst: "共同第一作者",
+  corresponding: "通讯作者",
+  notable: "重点关注作者",
+  other: "其他作者",
+};
+
+export function getAuthorDetails(paper: Pick<Paper, "authors" | "institutions" | "authorDetails">): AuthorDetail[] {
+  if (paper.authorDetails?.length) return paper.authorDetails.filter((author) => author.name.trim());
+  return (paper.authors ?? []).map((name, index) => ({
+    name,
+    role: index === 0 ? "first" : "other",
+    institution: paper.authors.length === paper.institutions.length ? paper.institutions[index] : undefined,
+  }));
+}
+
+export function paperAddedAt(paper: Pick<Paper, "createdAt" | "addedAt">) {
+  return paper.createdAt || paper.addedAt || "2026-07-15T00:00:00+08:00";
+}
 
 export const findPaper = (slug: string) => papers.find((paper) => paper.slug === slug);

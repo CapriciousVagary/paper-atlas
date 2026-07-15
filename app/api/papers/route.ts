@@ -4,6 +4,8 @@ import { getDb } from "../../../db";
 import { ensureDatabase } from "../../../db/ensure";
 import { papers as storedPapers } from "../../../db/schema";
 import { papers as curatedPapers } from "../../data";
+import type { AuthorDetail, AuthorRole } from "../../data";
+import { canonicalizeInstitution } from "../../lib/institutions";
 import { rankMatches, type MatchablePaper } from "../../lib/paper-match";
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
@@ -21,7 +23,24 @@ function parseJournal(value: string) {
 }
 
 function parseTags(value: string) {
-  return [...new Set(value.split(/[，,、#\n]/).map((item) => item.trim()).filter(Boolean).map((item) => item.slice(0, 30)))].slice(0, 12);
+  return [...new Set(value.split(/[，,、#\n]/).map((item) => item.trim()).filter(Boolean).map((item) => item.slice(0, 30)))].slice(0, 6);
+}
+
+const authorRoles = new Set<AuthorRole>(["first", "cofirst", "corresponding", "notable", "other"]);
+
+function parseAuthorDetails(value: FormDataEntryValue | null): AuthorDetail[] {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]")) as Array<Partial<AuthorDetail>>;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => ({
+      name: String(item.name ?? "").trim().slice(0, 120),
+      role: authorRoles.has(item.role as AuthorRole) ? item.role as AuthorRole : "other",
+      institution: canonicalizeInstitution(String(item.institution ?? "")).slice(0, 240) || undefined,
+      note: String(item.note ?? "").trim().slice(0, 160) || undefined,
+    })).filter((item) => item.name);
+  } catch {
+    return [];
+  }
 }
 
 function safeFilename(name: string) {
@@ -37,6 +56,7 @@ export async function GET() {
         ...paper,
         authors: JSON.parse(paper.authors || "[]"),
         institutions: JSON.parse(paper.institutions || "[]"),
+        authorDetails: JSON.parse(paper.authorDetails || "[]"),
         keywords: JSON.parse(paper.tags || "[]"),
         figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
       })),
@@ -73,9 +93,9 @@ export async function POST(request: Request) {
 
     const slug = slugify(title);
     const { journal, published } = parseJournal(String(form.get("journal") ?? ""));
-    const authorLines = String(form.get("authors") ?? "").split(/\r?\n/);
-    const authors = authorLines[0]?.split(/[，,]/).map((item) => item.trim()).filter(Boolean) ?? [];
-    const institutions = authorLines.slice(1).map((item) => item.trim()).filter(Boolean);
+    const authorDetails = parseAuthorDetails(form.get("authorDetails"));
+    const authors = authorDetails.map((author) => author.name);
+    const institutions = [...new Set(authorDetails.map((author) => author.institution).filter((item): item is string => Boolean(item)))];
     const tags = parseTags(String(form.get("tags") ?? ""));
     const storage = (env as unknown as { PAPERS: R2Bucket }).PAPERS;
     const file = form.get("file");
@@ -112,6 +132,7 @@ export async function POST(request: Request) {
       published,
       authors: JSON.stringify(authors),
       institutions: JSON.stringify(institutions),
+      authorDetails: JSON.stringify(authorDetails),
       abstractZh: String(form.get("abstractZh") ?? "").trim(),
       insight: String(form.get("insight") ?? "").trim().slice(0, 50),
       tags: JSON.stringify(tags),

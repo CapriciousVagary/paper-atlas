@@ -11,7 +11,10 @@ export default function SearchClient() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (query.trim().length < 2) { setResults([]); return; }
+    if (query.trim().length < 2) {
+      const reset = window.setTimeout(() => setResults([]), 0);
+      return () => window.clearTimeout(reset);
+    }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading(true);

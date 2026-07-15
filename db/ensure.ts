@@ -18,6 +18,7 @@ export function ensureDatabase() {
         published text DEFAULT '待补充' NOT NULL,
         authors text DEFAULT '[]' NOT NULL,
         institutions text DEFAULT '[]' NOT NULL,
+        author_details text DEFAULT '[]' NOT NULL,
         abstract_zh text DEFAULT '' NOT NULL,
         insight text DEFAULT '' NOT NULL,
         tags text DEFAULT '[]' NOT NULL,
@@ -39,11 +40,23 @@ export function ensureDatabase() {
         content text NOT NULL,
         created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
       )`),
+      d1.prepare(`CREATE TABLE IF NOT EXISTS institutions (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        full_name text NOT NULL UNIQUE,
+        normalized_name text NOT NULL,
+        aliases text DEFAULT '[]' NOT NULL,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_category_idx ON papers (category)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_status_idx ON papers (status)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_created_at_idx ON papers (created_at)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS comments_paper_slug_idx ON comments (paper_slug)"),
+      d1.prepare("CREATE INDEX IF NOT EXISTS institutions_normalized_name_idx ON institutions (normalized_name)"),
     ]);
+    const paperColumns = await d1.prepare("PRAGMA table_info(papers)").all<{ name: string }>();
+    if (!paperColumns.results.some((column) => column.name === "author_details")) {
+      await d1.prepare("ALTER TABLE papers ADD COLUMN author_details text DEFAULT '[]' NOT NULL").run();
+    }
   })().catch((error) => { initialized = undefined; throw error; });
   return initialized;
 }

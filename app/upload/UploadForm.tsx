@@ -2,10 +2,19 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { categories } from "../data";
+import { authorRoleLabels, categories, type AuthorDetail, type AuthorRole } from "../data";
 
 const CUSTOM = "__custom__";
 type Duplicate = { slug: string; title: string; titleZh?: string; journal?: string; published?: string; matchReason: string; score: number };
+type AuthorRow = AuthorDetail & { id: string };
+type InstitutionOption = { fullName: string; aliases: string[] };
+
+const initialAuthors: AuthorRow[] = [
+  { id: "first", role: "first", name: "", institution: "" },
+  { id: "cofirst", role: "cofirst", name: "", institution: "" },
+  { id: "corresponding", role: "corresponding", name: "", institution: "" },
+  { id: "notable", role: "notable", name: "", institution: "", note: "" },
+];
 
 export default function UploadForm() {
   const [categoryChoice, setCategoryChoice] = useState(categories[0].name);
@@ -20,6 +29,8 @@ export default function UploadForm() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
+  const [authors, setAuthors] = useState<AuthorRow[]>(initialAuthors);
+  const [institutionOptions, setInstitutionOptions] = useState<InstitutionOption[]>([]);
 
   const subcategoryOptions = useMemo(
     () => categories.find((item) => item.name === categoryChoice)?.subcategories ?? [],
@@ -30,8 +41,13 @@ export default function UploadForm() {
 
   useEffect(() => () => figures.forEach((item) => URL.revokeObjectURL(item.url)), [figures]);
 
+  useEffect(() => { void loadInstitutions(""); }, []);
+
   useEffect(() => {
-    if (title.trim().length < 3 && !sourceUrl.trim()) { setDuplicates([]); return; }
+    if (title.trim().length < 3 && !sourceUrl.trim()) {
+      const reset = window.setTimeout(() => setDuplicates([]), 0);
+      return () => window.clearTimeout(reset);
+    }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
@@ -57,6 +73,23 @@ export default function UploadForm() {
     setKeyFigureIndex(0);
   }
 
+  async function loadInstitutions(query: string) {
+    try {
+      const response = await fetch(`/api/institutions?q=${encodeURIComponent(query)}`);
+      if (response.ok) setInstitutionOptions((await response.json()).institutions ?? []);
+    } catch {
+      // Free-form institution entry remains available.
+    }
+  }
+
+  function updateAuthor(id: string, patch: Partial<AuthorRow>) {
+    setAuthors((current) => current.map((author) => author.id === id ? { ...author, ...patch } : author));
+  }
+
+  function addAuthor(role: AuthorRole = "cofirst") {
+    setAuthors((current) => [...current, { id: `${role}-${Date.now()}-${current.length}`, role, name: "", institution: "", note: "" }]);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!resolvedCategory || !resolvedSubcategory) {
@@ -69,6 +102,7 @@ export default function UploadForm() {
     form.set("subcategory", resolvedSubcategory);
     form.set("keyFigureIndex", String(keyFigureIndex));
     form.set("confirmDuplicate", duplicateConfirmed ? "1" : "0");
+    form.set("authorDetails", JSON.stringify(authors.filter((author) => author.name.trim()).map((author) => ({ name: author.name, role: author.role, institution: author.institution, note: author.note }))));
     const response = await fetch("/api/papers", { method: "POST", body: form });
     const data = await response.json().catch(() => ({}));
     if (response.status === 409) {
@@ -101,7 +135,20 @@ export default function UploadForm() {
         <div className="form-section-title"><span>02</span><div><b>基础信息</b><small>请以论文原文为准</small></div></div>
         <div className="form-grid"><label className="field-label">论文标题<input name="title" required value={title} onChange={(event) => { setTitle(event.target.value); setDuplicateConfirmed(false); }} placeholder="英文原始标题" /></label><label className="field-label">期刊与年月<input name="journal" placeholder="Nature Photonics · 2026.03" /></label></div>
         {duplicates.length > 0 && <div className="duplicate-warning"><div><b>可能已经收录</b><span>标题或 DOI 与现有条目接近，请先预览再判断。</span></div>{duplicates.map((paper) => <Link href={`/papers/${paper.slug}`} target="_blank" key={paper.slug}><span>{paper.matchReason} · {Math.round(paper.score * 100)}%</span><strong>{paper.title}</strong><small>{paper.journal || "期刊待补充"} · {paper.published || "年月待补充"}　预览本站详情 ↗</small></Link>)}<label><input type="checkbox" checked={duplicateConfirmed} onChange={(event) => setDuplicateConfirmed(event.target.checked)} />我已查看，确认仍要继续投稿</label></div>}
-        <label className="field-label">作者与单位<textarea name="authors" rows={3} placeholder="第一行填写作者，用逗号分隔；后续每行一个单位" /></label>
+        <div className="author-editor">
+          <div className="author-editor-heading"><div><b>关键作者与单位（可选）</b><small>默认展示第一作者、共同一作、通讯作者和投稿者重点关注的作者</small></div><button type="button" onClick={() => addAuthor()}>＋ 添加作者</button></div>
+          <input type="hidden" name="authorDetails" />
+          <datalist id="institution-options">{institutionOptions.map((item) => <option value={item.fullName} key={item.fullName}>{item.aliases.join(" / ")}</option>)}</datalist>
+          <div className="author-rows">{authors.map((author, index) => <div className="author-row" key={author.id}>
+            <label>作者类型<select value={author.role} onChange={(event) => updateAuthor(author.id, { role: event.target.value as AuthorRole })}>{Object.entries(authorRoleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+            <label>姓名<input value={author.name} onChange={(event) => updateAuthor(author.id, { name: event.target.value })} placeholder={index === 0 ? "例如：Jane Doe" : "可留空"} /></label>
+            <label className="institution-field">单位英文全称<input list="institution-options" value={author.institution ?? ""} onFocus={() => loadInstitutions(author.institution ?? "")} onChange={(event) => { updateAuthor(author.id, { institution: event.target.value }); void loadInstitutions(event.target.value); }} placeholder="输入中文名或缩写可获得英文全称建议" /></label>
+            {author.role === "notable" && <label>关注说明<input value={author.note ?? ""} onChange={(event) => updateAuthor(author.id, { note: event.target.value })} placeholder="例如：该方向代表性学者" /></label>}
+            <button className="remove-author" type="button" onClick={() => setAuthors((current) => current.filter((item) => item.id !== author.id))} aria-label="删除该作者">×</button>
+          </div>)}</div>
+          <div className="author-quick-add"><span>快速添加：</span><button type="button" onClick={() => addAuthor("cofirst")}>共同一作</button><button type="button" onClick={() => addAuthor("corresponding")}>通讯作者</button><button type="button" onClick={() => addAuthor("notable")}>重点关注作者</button></div>
+          <p className="field-help">请选择建议中的英文全称；如果是尚未出现的新单位，可直接填写英文全称，论文审核通过后会自动加入下次的提示列表。姓名、单位和作者类型均可稍后补充。</p>
+        </div>
 
         <div className="form-section-title"><span>03</span><div><b>分类与标签</b><small>列表没有合适项时可直接新增</small></div></div>
         <div className="form-grid">
@@ -114,7 +161,7 @@ export default function UploadForm() {
             {(subcategoryChoice === CUSTOM || categoryChoice === CUSTOM) && <input value={customSubcategory} onChange={(event) => setCustomSubcategory(event.target.value)} placeholder="输入新的小类名称" required />}
           </label>
         </div>
-        <label className="field-label">标签关键词<input name="tags" placeholder="微环, WDM, 矩阵乘法, 标定" /><small className="field-help">用逗号分隔，最多 12 个；论文发布后读者也可以继续补充标签。</small></label>
+        <label className="field-label">标签关键词<input name="tags" placeholder="微环, WDM, 矩阵乘法" /><small className="field-help">标签尽量精简，用逗号分隔，最多 6 个；论文发布后仍可继续补充。</small></label>
 
         <div className="form-section-title"><span>04</span><div><b>回顾内容</b><small>这是日后快速回忆论文的核心</small></div></div>
         <label className="field-label">中文摘要<textarea name="abstractZh" rows={6} required placeholder="建议保留研究目的、方法、主要结果与结论" /></label>
