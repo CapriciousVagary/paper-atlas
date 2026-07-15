@@ -198,15 +198,16 @@ window.PAPER_ATLAS = {
       "published": "2025.01",
       "authors": [
         "Jiaxing Liu",
-        "Li Zhan",
-        "M. Inman",
+        "Zhan Li",
+        "Michel Inman",
         "Zhaohui Ma",
         "Yunong Tang",
-        "Y. P. Huang"
+        "Yu-ping Huang"
       ],
       "institutions": [
-        "Cambridge Quantum Computing (United Kingdom)",
-        "Computing Center"
+        "Stevens Institute of Technology 物理系",
+        "Stevens Institute of Technology 量子科学与工程中心",
+        "Quantum Computing Inc."
       ],
       "abstractZh": "作者在周期性极化铌酸锂加下载微环中演示片上交叉式全光开关。利用和频产生诱导的量子芝诺阻塞，泵浦光可在两个输出端口间切换信号；准连续和脉冲工作均获得明显开关对比度，展示纯参量光路由与计算的可行性。",
       "insight": "以PPLN和频量子芝诺阻塞实现片上纯参量全光路由。",
@@ -539,7 +540,6 @@ window.PAPER_ATLAS = {
       ],
       "institutions": [
         "The University of Texas at Austin",
-        "King Abdullah University of Science &#x0026; Technology",
         "King Abdullah University of Science and Technology"
       ],
       "abstractZh": "作者针对大规模Transformer中的光电转换开销和有限光子资源复用问题，提出软硬件协同框架。Lighten将权重分解为低秩与结构化稀疏部分，ENLighten则用动态自适应光子张量核支持细粒度稀疏与功率门控，在ImageNet上将能延积改善2.5倍。",
@@ -1179,10 +1179,10 @@ window.PAPER_ATLAS = {
         "Shuai Feng"
       ],
       "institutions": [
-        "Peking University",
-        "Integrated Optoelectronics (Norway)",
-        "Collaborative Innovation Center of Quantum Matter",
-        "Minzu University of China"
+        "北京大学介观物理全国重点实验室",
+        "北京大学长三角光电科学研究院",
+        "中央民族大学理学院",
+        "中国科学院微电子研究所"
       ],
       "abstractZh": "作者通过算法—硬件协同释放交叉波导耦合微环的多种计算能力，并集成即用型孤子微梳光源。统一结构可重构为全连接、卷积和循环神经网络，208个可调单元实现最高2.45 TOPS/mm²，并完成图像、情感和语音任务。",
       "insight": "单一微环结构原位重构全连接、卷积和循环三类网络。",
@@ -1217,8 +1217,8 @@ window.PAPER_ATLAS = {
         "Yanfei Bai"
       ],
       "institutions": [
-        "OptiGrate (United States)",
-        "Stanford University"
+        "Lightelligence Pte. Ltd.",
+        "Stanford University E. L. Ginzton Laboratory"
       ],
       "abstractZh": "该工作构建含超过16000个光子元件的大规模加速器，标准化执行线性矩阵乘加，工作频率最高1 GHz、单周期延迟低至3 ns。电子逻辑、存储与控制芯片通过2.5D先进封装与光子芯片协同，并以Ising启发式求解展示低延迟优势。",
       "insight": "以16000余光子元件和2.5D封装实现3纳秒级矩阵乘加。",

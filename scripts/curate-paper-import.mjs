@@ -51,11 +51,15 @@ const curation = {
 
 const institutionOverrides = {
   2: ["上海交通大学光子学与通信全国重点实验室", "上海北极光电有限公司"],
+  5: ["Stevens Institute of Technology 物理系", "Stevens Institute of Technology 量子科学与工程中心", "Quantum Computing Inc."],
   9: ["东京大学工程与信息系统系"],
   11: ["阿卜杜拉国王科技大学光子实验室"],
+  15: ["The University of Texas at Austin", "King Abdullah University of Science and Technology"],
   17: ["上海交通大学光子学与通信全国重点实验室", "上海理工大学人工智能科学与技术学院"],
   25: ["宁波大学浙江省光电材料与器件重点实验室"],
   27: ["牛津大学克拉伦登实验室"],
+  33: ["北京大学介观物理全国重点实验室", "北京大学长三角光电科学研究院", "中央民族大学理学院", "中国科学院微电子研究所"],
+  34: ["Lightelligence Pte. Ltd.", "Stanford University E. L. Ginzton Laboratory"],
   40: ["上海交通大学先进光通信系统与网络全国重点实验室", "上海交大平湖智能光电研究院"],
   42: ["华中科技大学武汉光电国家研究中心", "湖北光谷实验室"],
   45: ["香港中文大学电子工程系"],
@@ -63,6 +67,7 @@ const institutionOverrides = {
 };
 
 const manualMetadata = {
+  5: { authors: ["Jiaxing Liu", "Zhan Li", "Michel Inman", "Zhaohui Ma", "Yunong Tang", "Yu-ping Huang"] },
   9: { authors: ["Shuhei Ohno", "Kasidit Toprasertpong", "Shinichi Takagi", "Mitsuru Takenaka"] },
   48: { title: "基于线性系统的全光非线性神经网络", journal: "光学学报", published: "2025.12", authors: ["廖莎莎", "魏令巍", "陈映霏", "刘业君"] }
 };
