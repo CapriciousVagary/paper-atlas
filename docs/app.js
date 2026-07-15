@@ -19,7 +19,7 @@
 
   function renderCategories() {
     categoryGrid.innerHTML = categories.map((category, i) => {
-      const count = papers.filter((paper) => paper.category === category.name).length;
+      const count = papers.filter((paper) => (paper.classifications || [{ category: paper.category }]).some((item) => item.category === category.name)).length;
       return `<button class="category-card ${category.tone} ${activeCategory === category.name ? "active" : ""}" data-category="${esc(category.name)}">
         <span class="category-top"><i>0${i + 1}</i><b>${esc(category.code)}</b></span>
         <h3>${esc(category.name)}</h3><p>${esc(category.description)}</p>
@@ -30,13 +30,13 @@
   }
 
   function matches(paper, query) {
-    const haystack = [paper.title, paper.titleZh, paper.category, paper.subcategory, paper.journal, paper.abstractZh, paper.insight, ...paper.authors, ...paper.institutions, ...paper.keywords].join(" ").toLowerCase();
+    const haystack = [paper.title, paper.titleZh, ...(paper.classifications || [{ category: paper.category, subcategory: paper.subcategory }]).flatMap((item) => [item.category, item.subcategory]), paper.journal, paper.abstractZh, paper.insight, ...paper.authors, ...paper.institutions, ...paper.keywords].join(" ").toLowerCase();
     return haystack.includes(query.toLowerCase());
   }
 
   function renderPapers() {
     const query = searchInput.value.trim();
-    const filtered = papers.filter((paper) => (!activeCategory || paper.category === activeCategory) && (!query || matches(paper, query)));
+    const filtered = papers.filter((paper) => (!activeCategory || (paper.classifications || [{ category: paper.category }]).some((item) => item.category === activeCategory)) && (!query || matches(paper, query)));
     paperList.innerHTML = filtered.map((paper, i) => `<article class="paper-card">
       <span class="paper-number">${String(i + 1).padStart(2, "0")}</span>
       <div class="paper-copy">
@@ -56,7 +56,7 @@
     const paper = papers.find((item) => item.slug === slug);
     if (!paper) return;
     dialogContent.innerHTML = `<article class="detail" style="--accent:${paper.accent}">
-      <div class="detail-head"><p>${esc(paper.category)} · ${esc(paper.subcategory)}</p><h2>${esc(paper.title)}</h2><h3>${esc(paper.titleZh)}</h3><div><b>${esc(paper.journal)}</b><span>${esc(paper.published)}</span></div></div>
+      <div class="detail-head"><p>${(paper.classifications || [{ category: paper.category, subcategory: paper.subcategory }]).map((item) => `${esc(item.category)} · ${esc(item.subcategory)}`).join("　/　")}</p><h2>${esc(paper.title)}</h2><h3>${esc(paper.titleZh)}</h3><div><b>${esc(paper.journal)}</b><span>${esc(paper.published)}</span></div></div>
       <div class="detail-grid"><div>
         <section><small>01 · 中文摘要</small><p class="abstract">${esc(paper.abstractZh)}</p></section>
         <section class="insight-box"><small>02 · 50 字创新点</small><blockquote>${esc(paper.insight)}</blockquote></section>

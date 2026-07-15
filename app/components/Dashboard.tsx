@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { categories, paperAddedAt, papers, type Paper } from "../data";
+import { applyPaperOverrides, categories, getClassifications, hasClassification, paperAddedAt, papers, type Paper } from "../data";
 import { FigurePreview } from "./FigurePreview";
 import { SiteHeader } from "./SiteHeader";
 
@@ -12,33 +12,31 @@ export default function Dashboard({ initialQuery = "", initialCategory = "全部
   const [query, setQuery] = useState(initialQuery);
   const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [uploaded, setUploaded] = useState<UploadedPaper[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, Partial<Paper>>>({});
   const [currentTime] = useState(() => Date.now());
   const latestSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     fetch("/api/papers")
       .then((response) => (response.ok ? response.json() : { papers: [] }))
-      .then((data) => setUploaded(data.papers ?? []))
+      .then((data) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); })
       .catch(() => undefined);
     if (initialCategory !== "全部方向") window.setTimeout(() => latestSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
   }, [initialCategory]);
 
-  const allPapers = useMemo(() => [...papers, ...uploaded] as Paper[], [uploaded]);
+  const allPapers = useMemo(() => [...applyPaperOverrides(papers, overrides), ...uploaded] as Paper[], [uploaded, overrides]);
   const displayCategories = useMemo(() => {
     const items = categories.map((item) => ({ ...item, subcategories: [...item.subcategories] }));
-    for (const paper of uploaded) {
-      let category = items.find((item) => item.name === paper.category);
-      if (!category) {
-        category = { name: paper.category, code: "NEW", description: "由联合课题组投稿者新增的研究方向", subcategories: [], tone: "violet" };
-        items.push(category);
-      }
-      if (!category.subcategories.includes(paper.subcategory)) category.subcategories.push(paper.subcategory);
+    for (const paper of allPapers) for (const classification of getClassifications(paper)) {
+      let category = items.find((item) => item.name === classification.category);
+      if (!category) { category = { name: classification.category, code: "NEW", description: "由联合课题组投稿者新增的研究方向", subcategories: [], tone: "violet" }; items.push(category); }
+      if (!category.subcategories.includes(classification.subcategory)) category.subcategories.push(classification.subcategory);
     }
     return items;
-  }, [uploaded]);
+  }, [allPapers]);
   const visiblePapers = allPapers.filter((paper) => {
-    const inCategory = activeCategory === "全部方向" || paper.category === activeCategory;
-    const haystack = [paper.title, paper.titleZh, paper.journal, paper.category, paper.subcategory, ...(paper.authors ?? []), ...(paper.keywords ?? [])]
+    const inCategory = activeCategory === "全部方向" || hasClassification(paper, activeCategory);
+    const haystack = [paper.title, paper.titleZh, paper.journal, ...getClassifications(paper).flatMap((item) => [item.category, item.subcategory]), ...(paper.authors ?? []), ...(paper.keywords ?? [])]
       .filter(Boolean).join(" ").toLowerCase();
     return inCategory && haystack.includes(query.trim().toLowerCase());
   }).sort((a, b) => new Date(paperAddedAt(b)).getTime() - new Date(paperAddedAt(a)).getTime()).slice(0, 3);
@@ -95,7 +93,7 @@ export default function Dashboard({ initialQuery = "", initialCategory = "全部
               <div className="category-top"><span className="category-number">0{index + 1}</span><span className="category-code">{category.code}</span></div>
               <h3>{category.name}</h3><p>{category.description}</p>
               <div className="subcategory-list">{category.subcategories.map((sub) => <span key={sub}>{sub}</span>)}</div>
-              <div className="category-foot"><span>{allPapers.filter((p) => p.category === category.name).length} 篇收录</span><b>↗</b></div>
+              <div className="category-foot"><span>{allPapers.filter((paper) => hasClassification(paper, category.name)).length} 篇收录</span><b>↗</b></div>
             </button>
           ))}
         </div>

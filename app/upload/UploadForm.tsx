@@ -8,6 +8,7 @@ const CUSTOM = "__custom__";
 type Duplicate = { slug: string; title: string; titleZh?: string; journal?: string; published?: string; matchReason: string; score: number };
 type AuthorRow = AuthorDetail & { id: string };
 type InstitutionOption = { fullName: string; aliases: string[] };
+type ExtraClassification = { id: string; category: string; subcategory: string };
 
 const initialAuthors: AuthorRow[] = [
   { id: "first", role: "first", name: "", institution: "" },
@@ -31,6 +32,7 @@ export default function UploadForm() {
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
   const [authors, setAuthors] = useState<AuthorRow[]>(initialAuthors);
   const [institutionOptions, setInstitutionOptions] = useState<InstitutionOption[]>([]);
+  const [extraClassifications, setExtraClassifications] = useState<ExtraClassification[]>([]);
 
   const subcategoryOptions = useMemo(
     () => categories.find((item) => item.name === categoryChoice)?.subcategories ?? [],
@@ -102,7 +104,8 @@ export default function UploadForm() {
     form.set("subcategory", resolvedSubcategory);
     form.set("keyFigureIndex", String(keyFigureIndex));
     form.set("confirmDuplicate", duplicateConfirmed ? "1" : "0");
-    form.set("authorDetails", JSON.stringify(authors.filter((author) => author.name.trim()).map((author) => ({ name: author.name, role: author.role, institution: author.institution, note: author.note }))));
+    form.set("authorDetails", JSON.stringify(authors.filter((author) => author.name.trim()).map((author) => ({ name: author.name, role: author.role, institution: author.institution, aliases: author.aliases, note: author.note }))));
+    form.set("classifications", JSON.stringify(extraClassifications.filter((item) => item.category.trim() && item.subcategory.trim())));
     const response = await fetch("/api/papers", { method: "POST", body: form });
     const data = await response.json().catch(() => ({}));
     if (response.status === 409) {
@@ -142,6 +145,7 @@ export default function UploadForm() {
           <div className="author-rows">{authors.map((author, index) => <div className="author-row" key={author.id}>
             <label>作者类型<select value={author.role} onChange={(event) => updateAuthor(author.id, { role: event.target.value as AuthorRole })}>{Object.entries(authorRoleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
             <label>姓名<input value={author.name} onChange={(event) => updateAuthor(author.id, { name: event.target.value })} placeholder={index === 0 ? "例如：Jane Doe" : "可留空"} /></label>
+            <label>姓名别名<input value={(author.aliases ?? []).join(", ")} onChange={(event) => updateAuthor(author.id, { aliases: event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean) })} placeholder="例如：张三, San Zhang" /></label>
             <label className="institution-field">单位英文全称<input list="institution-options" value={author.institution ?? ""} onFocus={() => loadInstitutions(author.institution ?? "")} onChange={(event) => { updateAuthor(author.id, { institution: event.target.value }); void loadInstitutions(event.target.value); }} placeholder="输入中文名或缩写可获得英文全称建议" /></label>
             {author.role === "notable" && <label>关注说明<input value={author.note ?? ""} onChange={(event) => updateAuthor(author.id, { note: event.target.value })} placeholder="例如：该方向代表性学者" /></label>}
             <button className="remove-author" type="button" onClick={() => setAuthors((current) => current.filter((item) => item.id !== author.id))} aria-label="删除该作者">×</button>
@@ -161,6 +165,7 @@ export default function UploadForm() {
             {(subcategoryChoice === CUSTOM || categoryChoice === CUSTOM) && <input value={customSubcategory} onChange={(event) => setCustomSubcategory(event.target.value)} placeholder="输入新的小类名称" required />}
           </label>
         </div>
+        <div className="multi-class-editor"><div><b>其他所属分类（可选）</b><button type="button" onClick={() => setExtraClassifications((current) => [...current, { id: `class-${Date.now()}`, category: "", subcategory: "" }])}>＋ 添加另一分类</button></div><p>同一论文可属于多个大类或小类；每个所属分类都会参与计数与筛选。</p><datalist id="category-options">{categories.map((item) => <option value={item.name} key={item.name} />)}</datalist>{extraClassifications.map((item) => <div className="multi-class-row" key={item.id}><input list="category-options" value={item.category} onChange={(event) => setExtraClassifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, category: event.target.value } : entry))} placeholder="大类（可新建）" /><input value={item.subcategory} onChange={(event) => setExtraClassifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, subcategory: event.target.value } : entry))} placeholder="小类（可新建）" /><button type="button" onClick={() => setExtraClassifications((current) => current.filter((entry) => entry.id !== item.id))}>×</button></div>)}</div>
         <label className="field-label">标签关键词<input name="tags" placeholder="微环, WDM, 矩阵乘法" /><small className="field-help">标签尽量精简，用逗号分隔，最多 6 个；论文发布后仍可继续补充。</small></label>
 
         <div className="form-section-title"><span>04</span><div><b>回顾内容</b><small>这是日后快速回忆论文的核心</small></div></div>

@@ -12,8 +12,11 @@ export function ensureDatabase() {
         id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
         slug text NOT NULL UNIQUE,
         title text NOT NULL,
+        title_zh text DEFAULT '' NOT NULL,
+        doi text DEFAULT '' NOT NULL,
         category text NOT NULL,
         subcategory text NOT NULL,
+        classifications text DEFAULT '[]' NOT NULL,
         journal text DEFAULT '待补充' NOT NULL,
         published text DEFAULT '待补充' NOT NULL,
         authors text DEFAULT '[]' NOT NULL,
@@ -47,6 +50,11 @@ export function ensureDatabase() {
         aliases text DEFAULT '[]' NOT NULL,
         created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
       )`),
+      d1.prepare(`CREATE TABLE IF NOT EXISTS paper_edits (
+        slug text PRIMARY KEY NOT NULL,
+        data text NOT NULL,
+        updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_category_idx ON papers (category)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_status_idx ON papers (status)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_created_at_idx ON papers (created_at)"),
@@ -56,6 +64,15 @@ export function ensureDatabase() {
     const paperColumns = await d1.prepare("PRAGMA table_info(papers)").all<{ name: string }>();
     if (!paperColumns.results.some((column) => column.name === "author_details")) {
       await d1.prepare("ALTER TABLE papers ADD COLUMN author_details text DEFAULT '[]' NOT NULL").run();
+    }
+    if (!paperColumns.results.some((column) => column.name === "classifications")) {
+      await d1.prepare("ALTER TABLE papers ADD COLUMN classifications text DEFAULT '[]' NOT NULL").run();
+    }
+    if (!paperColumns.results.some((column) => column.name === "title_zh")) {
+      await d1.prepare("ALTER TABLE papers ADD COLUMN title_zh text DEFAULT '' NOT NULL").run();
+    }
+    if (!paperColumns.results.some((column) => column.name === "doi")) {
+      await d1.prepare("ALTER TABLE papers ADD COLUMN doi text DEFAULT '' NOT NULL").run();
     }
   })().catch((error) => { initialized = undefined; throw error; });
   return initialized;

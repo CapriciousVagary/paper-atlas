@@ -1,16 +1,17 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { papers as storedPapers } from "../../../../db/schema";
-import { papers as curatedPapers } from "../../../data";
+import { paperEdits, papers as storedPapers } from "../../../../db/schema";
+import { applyPaperOverrides, papers as curatedPapers, type Paper } from "../../../data";
 import { rankMatches, type MatchablePaper } from "../../../lib/paper-match";
 
 async function allApprovedPapers(): Promise<MatchablePaper[]> {
-  const curated: MatchablePaper[] = curatedPapers.map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: paper.titleZh, journal: paper.journal, published: paper.published, doi: paper.doi, sourceUrl: paper.sourceUrl, status: "approved" }));
   try {
-    const stored = await getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).limit(500);
-    return [...curated, ...stored.map((paper) => ({ slug: paper.slug, title: paper.title, journal: paper.journal, published: paper.published, sourceUrl: paper.sourceUrl, status: paper.status }))];
+    const [stored, edits] = await Promise.all([getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).limit(500), getDb().select().from(paperEdits).limit(500)]);
+    const overrides = Object.fromEntries(edits.map((edit) => [edit.slug, JSON.parse(edit.data || "{}")]));
+    const curated = applyPaperOverrides(curatedPapers, overrides).map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: paper.titleZh, journal: paper.journal, published: paper.published, doi: paper.doi, sourceUrl: paper.sourceUrl, status: "approved" }));
+    return [...curated, ...stored.map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: paper.titleZh, journal: paper.journal, published: paper.published, doi: paper.doi, sourceUrl: paper.sourceUrl, status: paper.status }))];
   } catch {
-    return curated;
+    return curatedPapers.map((paper: Paper) => ({ slug: paper.slug, title: paper.title, titleZh: paper.titleZh, journal: paper.journal, published: paper.published, doi: paper.doi, sourceUrl: paper.sourceUrl, status: "approved" }));
   }
 }
 

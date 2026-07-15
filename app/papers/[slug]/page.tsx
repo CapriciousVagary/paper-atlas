@@ -2,12 +2,12 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { getDb } from "../../../db";
-import { papers as storedPapers } from "../../../db/schema";
+import { paperEdits, papers as storedPapers } from "../../../db/schema";
 import { Comments } from "../../components/Comments";
 import { FigurePreview } from "../../components/FigurePreview";
 import { KeywordEditor } from "../../components/KeywordEditor";
 import { SiteHeader } from "../../components/SiteHeader";
-import { authorRoleLabels, findPaper, getAuthorDetails, papers, type Paper } from "../../data";
+import { authorRoleLabels, findPaper, getAuthorDetails, getClassifications, papers, type Paper } from "../../data";
 
 export function generateStaticParams() {
   return papers.map((paper) => ({ slug: paper.slug }));
@@ -15,7 +15,12 @@ export function generateStaticParams() {
 
 async function loadPaper(slug: string): Promise<Paper | undefined> {
   const curated = findPaper(slug);
-  if (curated) return curated;
+  if (curated) {
+    try {
+      const [edit] = await getDb().select().from(paperEdits).where(eq(paperEdits.slug, slug)).limit(1);
+      return edit ? { ...curated, ...JSON.parse(edit.data), slug: curated.slug } : curated;
+    } catch { return curated; }
+  }
   try {
     const [stored] = await getDb().select().from(storedPapers).where(eq(storedPapers.slug, slug)).limit(1);
     if (!stored || stored.status !== "approved") return undefined;
@@ -23,9 +28,11 @@ async function loadPaper(slug: string): Promise<Paper | undefined> {
     return {
       slug: stored.slug,
       title: stored.title,
-      titleZh: "中文标题待补充",
+      titleZh: stored.titleZh || "中文标题待补充",
+      doi: stored.doi || undefined,
       category: stored.category,
       subcategory: stored.subcategory,
+      classifications: JSON.parse(stored.classifications || "[]"),
       journal: stored.journal,
       published: stored.published,
       authors: JSON.parse(stored.authors || "[]"),
@@ -58,6 +65,7 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
   const paper = await loadPaper(slug);
   if (!paper) notFound();
   const allAuthors = getAuthorDetails(paper);
+  const classifications = getClassifications(paper);
   const keyAuthors = allAuthors.filter((author) => author.role !== "other");
   const defaultAuthors = keyAuthors.length ? keyAuthors : allAuthors.slice(0, 1);
 
@@ -67,7 +75,7 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
       <div className="breadcrumb"><Link href="/">文献库</Link><span>/</span><Link href={`/browse?category=${encodeURIComponent(paper.category)}`}>{paper.category}</Link><span>/</span><Link href={`/browse?category=${encodeURIComponent(paper.category)}&subcategory=${encodeURIComponent(paper.subcategory)}`}>{paper.subcategory}</Link></div>
       <section className="paper-detail-hero" style={{ "--paper-accent": paper.accent } as React.CSSProperties}>
         <div className="detail-copy">
-          <div className="detail-badges"><span>{paper.category}</span><span>{paper.subcategory}</span>{paper.verificationStatus && <em>{paper.verificationStatus === "verified" ? "题名 / DOI 已核验" : "论文 PDF 人工核验"}</em>}</div>
+          <div className="detail-badges">{classifications.map((item) => <Link href={`/browse?category=${encodeURIComponent(item.category)}&subcategory=${encodeURIComponent(item.subcategory)}`} key={`${item.category}-${item.subcategory}`}><span>{item.category} · {item.subcategory}</span></Link>)}{paper.verificationStatus && <em>{paper.verificationStatus === "verified" ? "题名 / DOI 已核验" : "论文 PDF 人工核验"}</em>}</div>
           <h1>{paper.title}</h1>{paper.titleZh && <p className="detail-title-zh">{paper.titleZh}</p>}
           <div className="citation-line"><strong>{paper.journal}</strong><span>{paper.published}</span></div>
           <div className="key-author-list">{defaultAuthors.length ? defaultAuthors.map((author) => <div key={`${author.role}-${author.name}-${author.institution ?? ""}`}><span>{authorRoleLabels[author.role]}</span><p><Link href={authorHref(author.name, author.institution)}>{author.name}</Link>{author.institution && <> · <Link href={`/browse?institution=${encodeURIComponent(author.institution)}`}>{author.institution}</Link></>}{author.note && <small>{author.note}</small>}</p></div>) : <p className="authors-missing">作者与单位待补充</p>}</div>
@@ -84,7 +92,7 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
           <Comments paperSlug={paper.slug} />
         </article>
         <aside className="detail-sidebar">
-          <section><span className="section-kicker">QUICK RECALL</span><h3>回顾卡</h3><dl><div><dt>研究方向</dt><dd>{paper.category} · {paper.subcategory}</dd></div><div><dt>核心方法</dt><dd>{paper.keywords.slice(0, 3).join(" · ") || "待补充"}</dd></div><div><dt>作者信息</dt><dd>{defaultAuthors.map((author) => `${authorRoleLabels[author.role]}：${author.name}`).join("；") || "待补充"}</dd></div></dl></section>
+          <section><span className="section-kicker">QUICK RECALL</span><h3>回顾卡</h3><dl><div><dt>研究方向</dt><dd>{classifications.map((item) => `${item.category} · ${item.subcategory}`).join("；")}</dd></div><div><dt>核心方法</dt><dd>{paper.keywords.slice(0, 3).join(" · ") || "待补充"}</dd></div><div><dt>作者信息</dt><dd>{defaultAuthors.map((author) => `${authorRoleLabels[author.role]}：${author.name}`).join("；") || "待补充"}</dd></div></dl></section>
           <section><span className="section-kicker">KEYWORDS</span>{paper.verificationStatus || paper.sample ? <><div className="keyword-cloud">{paper.keywords.slice(0, 6).map((keyword) => <Link href={`/browse?tag=${encodeURIComponent(keyword)}`} key={keyword}>{keyword}</Link>)}</div><small className="tag-status">当前仅显示最核心的 6 个标签；如需调整可在评论中注明。</small></> : <KeywordEditor paperSlug={paper.slug} initialKeywords={paper.keywords.slice(0, 6)} />}</section>
           <section className="source-box"><span className="section-kicker">SOURCE</span><p>{paper.doi ? `DOI：${paper.doi}` : paper.pdfUrl || paper.sourceUrl ? "可从下方打开投稿者提供的论文来源。" : "暂未提供论文来源。"}</p>{paper.pdfUrl ? <a href={paper.pdfUrl} target="_blank" rel="noreferrer">打开上传 PDF →</a> : paper.sourceUrl ? <a href={paper.sourceUrl} target="_blank" rel="noreferrer">打开论文来源 →</a> : <button disabled>暂无原文</button>}</section>
         </aside>

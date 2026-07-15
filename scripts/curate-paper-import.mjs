@@ -77,14 +77,31 @@ function unique(items) {
   return items.filter((item) => { const key = item.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""); if (!key || seen.has(key)) return false; seen.add(key); return true; });
 }
 
+function nameAliases(name) {
+  const chinese = (name.match(/[\p{Script=Han}]+/gu) ?? []).join("");
+  const latin = name.replace(/[\p{Script=Han}]+/gu, " ").replace(/[·•，,()（）]/g, " ").replace(/\s+/g, " ").trim();
+  return [...new Set([chinese, latin].filter((item) => item && item !== name))];
+}
+
+function buildAuthorDetails(authors, institutions) {
+  if (!authors.length) return [];
+  return authors.map((name, index) => ({
+    name,
+    role: authors.length === 1 ? "first_corresponding" : index === 0 ? "first" : index === authors.length - 1 ? "corresponding" : "other",
+    institution: index === 0 ? institutions[0] : index === authors.length - 1 ? institutions.at(-1) : undefined,
+    aliases: nameAliases(name),
+    note: index === authors.length - 1 && authors.length > 1 ? "按末位作者规则暂定为主要通讯作者，可由审核者修订" : undefined,
+  }));
+}
+
 const papers = metadata.papers.map((paper) => {
   const curated = curation[paper.number];
   if (!curated) throw new Error(`Missing curation for #${paper.number}`);
   const [titleZh, abstractZh, insight, keywords, subcategory] = curated;
   const manual = manualMetadata[paper.number] ?? {};
   const title = manual.title ?? paper.title ?? paper.expectedTitle;
-  const authors = unique(manual.authors ?? paper.authors).slice(0, 8);
-  const institutions = institutionOverrides[paper.number] ?? unique(paper.institutions).slice(0, 4);
+  const authors = unique(manual.authors ?? paper.authors);
+  const institutions = institutionOverrides[paper.number] ?? unique(paper.institutions);
   const slugBase = title.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 72);
   return {
     slug: slugBase || `paper-${paper.number}`,
@@ -92,10 +109,12 @@ const papers = metadata.papers.map((paper) => {
     titleZh,
     category: paper.number === 5 ? "薄膜铌酸锂集成光子学" : "光计算",
     subcategory,
+    classifications: [{ category: paper.number === 5 ? "薄膜铌酸锂集成光子学" : "光计算", subcategory }],
     journal: manual.journal ?? paper.journal,
     published: manual.published ?? paper.published,
     authors,
     institutions: institutions.length ? institutions : ["作者单位请参考论文原文"],
+    authorDetails: buildAuthorDetails(authors, institutions),
     abstractZh,
     insight,
     keywords,
@@ -104,7 +123,8 @@ const papers = metadata.papers.map((paper) => {
     accent: paper.number === 5 ? "#14aeb6" : "#7458e8",
     sourceUrl: `https://doi.org/${paper.doi}`,
     doi: paper.doi,
-    verificationStatus: paper.number === 48 ? "manual" : "verified"
+    verificationStatus: paper.number === 48 ? "manual" : "verified",
+    addedAt: "2026-07-15T00:00:00+08:00"
   };
 });
 

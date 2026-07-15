@@ -2,9 +2,9 @@ import { env } from "cloudflare:workers";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDatabase } from "../../../db/ensure";
-import { papers as storedPapers } from "../../../db/schema";
+import { paperEdits, papers as storedPapers } from "../../../db/schema";
 import { papers as curatedPapers } from "../../data";
-import type { AuthorDetail, AuthorRole } from "../../data";
+import type { AuthorDetail, AuthorRole, Classification } from "../../data";
 import { canonicalizeInstitution } from "../../lib/institutions";
 import { rankMatches, type MatchablePaper } from "../../lib/paper-match";
 
@@ -26,7 +26,7 @@ function parseTags(value: string) {
   return [...new Set(value.split(/[，,、#\n]/).map((item) => item.trim()).filter(Boolean).map((item) => item.slice(0, 30)))].slice(0, 6);
 }
 
-const authorRoles = new Set<AuthorRole>(["first", "cofirst", "corresponding", "notable", "other"]);
+const authorRoles = new Set<AuthorRole>(["first", "first_corresponding", "cofirst", "corresponding", "notable", "other"]);
 
 function parseAuthorDetails(value: FormDataEntryValue | null): AuthorDetail[] {
   try {
@@ -36,10 +36,24 @@ function parseAuthorDetails(value: FormDataEntryValue | null): AuthorDetail[] {
       name: String(item.name ?? "").trim().slice(0, 120),
       role: authorRoles.has(item.role as AuthorRole) ? item.role as AuthorRole : "other",
       institution: canonicalizeInstitution(String(item.institution ?? "")).slice(0, 240) || undefined,
+      aliases: Array.isArray(item.aliases) ? [...new Set(item.aliases.map((alias) => String(alias).trim()).filter(Boolean))].slice(0, 8) : undefined,
       note: String(item.note ?? "").trim().slice(0, 160) || undefined,
     })).filter((item) => item.name);
   } catch {
     return [];
+  }
+}
+
+function parseClassifications(value: FormDataEntryValue | null, category: string, subcategory: string): Classification[] {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]")) as Array<Partial<Classification>>;
+    const items = [{ category, subcategory }, ...(Array.isArray(parsed) ? parsed : [])].map((item) => ({
+      category: String(item.category ?? "").trim().slice(0, 80),
+      subcategory: String(item.subcategory ?? "").trim().slice(0, 80),
+    })).filter((item) => item.category && item.subcategory);
+    return [...new Map(items.map((item) => [`${item.category}\u0000${item.subcategory}`, item])).values()];
+  } catch {
+    return [{ category, subcategory }];
   }
 }
 
@@ -50,16 +64,23 @@ function safeFilename(name: string) {
 export async function GET() {
   try {
     await ensureDatabase();
-    const rows = await getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).orderBy(desc(storedPapers.createdAt)).limit(200);
+    const [rows, edits] = await Promise.all([
+      getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).orderBy(desc(storedPapers.createdAt)).limit(500),
+      getDb().select().from(paperEdits).limit(500),
+    ]);
     return Response.json({
       papers: rows.map((paper) => ({
         ...paper,
+        titleZh: paper.titleZh,
+        doi: paper.doi || undefined,
         authors: JSON.parse(paper.authors || "[]"),
         institutions: JSON.parse(paper.institutions || "[]"),
         authorDetails: JSON.parse(paper.authorDetails || "[]"),
+        classifications: JSON.parse(paper.classifications || "[]"),
         keywords: JSON.parse(paper.tags || "[]"),
         figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
       })),
+      overrides: Object.fromEntries(edits.map((edit) => [edit.slug, JSON.parse(edit.data || "{}")])),
     });
   } catch {
     return Response.json({ papers: [] });
@@ -79,11 +100,12 @@ export async function POST(request: Request) {
     }
 
     const sourceUrl = String(form.get("sourceUrl") ?? "").trim();
+    const doi = String(form.get("doi") ?? sourceUrl.match(/10\.\d{4,9}\/\S+/i)?.[0] ?? "").replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "").trim();
     if (String(form.get("confirmDuplicate") ?? "0") !== "1") {
       const candidates: MatchablePaper[] = curatedPapers.map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: paper.titleZh, journal: paper.journal, published: paper.published, doi: paper.doi, sourceUrl: paper.sourceUrl }));
       try {
         const existing = await getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).limit(500);
-        candidates.push(...existing.map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: undefined, journal: paper.journal, published: paper.published, doi: undefined, sourceUrl: paper.sourceUrl })));
+        candidates.push(...existing.map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: paper.titleZh, journal: paper.journal, published: paper.published, doi: paper.doi, sourceUrl: paper.sourceUrl })));
       } catch {
         // Curated records still protect against duplicates in local preview.
       }
@@ -97,6 +119,7 @@ export async function POST(request: Request) {
     const authors = authorDetails.map((author) => author.name);
     const institutions = [...new Set(authorDetails.map((author) => author.institution).filter((item): item is string => Boolean(item)))];
     const tags = parseTags(String(form.get("tags") ?? ""));
+    const classifications = parseClassifications(form.get("classifications"), category, subcategory);
     const storage = (env as unknown as { PAPERS: R2Bucket }).PAPERS;
     const file = form.get("file");
     let fileKey: string | null = null;
@@ -126,8 +149,11 @@ export async function POST(request: Request) {
     const [paper] = await getDb().insert(storedPapers).values({
       slug,
       title: title.slice(0, 500),
+      titleZh: String(form.get("titleZh") ?? "").trim().slice(0, 500),
+      doi: doi.slice(0, 200),
       category,
       subcategory,
+      classifications: JSON.stringify(classifications),
       journal,
       published,
       authors: JSON.stringify(authors),

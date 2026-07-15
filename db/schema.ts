@@ -5,8 +5,11 @@ export const papers = sqliteTable("papers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull(),
+  titleZh: text("title_zh").notNull().default(""),
+  doi: text("doi").notNull().default(""),
   category: text("category").notNull(),
   subcategory: text("subcategory").notNull(),
+  classifications: text("classifications").notNull().default("[]"),
   journal: text("journal").notNull().default("待补充"),
   published: text("published").notNull().default("待补充"),
   authors: text("authors").notNull().default("[]"),
@@ -46,3 +49,9 @@ export const institutions = sqliteTable("institutions", {
   aliases: text("aliases").notNull().default("[]"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("institutions_normalized_name_idx").on(table.normalizedName)]);
+
+export const paperEdits = sqliteTable("paper_edits", {
+  slug: text("slug").primaryKey(),
+  data: text("data").notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
