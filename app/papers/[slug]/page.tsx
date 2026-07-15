@@ -1,17 +1,50 @@
 import Link from "next/link";
+import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
+import { getDb } from "../../../db";
+import { papers as storedPapers } from "../../../db/schema";
 import { Comments } from "../../components/Comments";
 import { FigurePreview } from "../../components/FigurePreview";
 import { SiteHeader } from "../../components/SiteHeader";
-import { findPaper, papers } from "../../data";
+import { findPaper, papers, type Paper } from "../../data";
 
 export function generateStaticParams() {
   return papers.map((paper) => ({ slug: paper.slug }));
 }
 
+async function loadPaper(slug: string): Promise<Paper | undefined> {
+  const sample = findPaper(slug);
+  if (sample) return sample;
+
+  try {
+    const [stored] = await getDb().select().from(storedPapers).where(eq(storedPapers.slug, slug)).limit(1);
+    if (!stored) return undefined;
+    const figureType: Paper["figureType"] = stored.category === "光计算" ? "ring" : stored.category.includes("铌酸锂") ? "modulator" : "laser";
+    return {
+      slug: stored.slug,
+      title: stored.title,
+      titleZh: "中文标题待补充",
+      category: stored.category,
+      subcategory: stored.subcategory,
+      journal: stored.journal,
+      published: stored.published,
+      authors: JSON.parse(stored.authors || "[]"),
+      institutions: JSON.parse(stored.institutions || "[]"),
+      abstractZh: stored.abstractZh || "中文摘要正在整理中。",
+      insight: stored.insight || "创新点待组内成员确认。",
+      keywords: [stored.subcategory],
+      figureCaption: "关键图表待上传者确认并补充图注。",
+      figureType,
+      accent: figureType === "ring" ? "#7458e8" : figureType === "modulator" ? "#14aeb6" : "#dc9130",
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export default async function PaperPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const paper = findPaper(slug);
+  const paper = await loadPaper(slug);
   if (!paper) notFound();
 
   return (
