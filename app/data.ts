@@ -14,6 +14,9 @@ export type Paper = {
   figureCaption: string;
   figureType: "ring" | "modulator" | "laser";
   accent: string;
+  figureImageUrl?: string;
+  pdfUrl?: string;
+  sourceUrl?: string;
   sample?: boolean;
 };
 

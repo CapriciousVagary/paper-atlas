@@ -9,10 +9,10 @@ export async function generateMetadata(): Promise<Metadata> {
   const imageUrl = `${protocol}://${host}/og.png`;
 
   return {
-    title: { default: "Q-chip Literature Atlas", template: "%s · Q-chip Literature Atlas" },
-    description: "香港理工大学量子技术研究中心 RIQT · Q-chip 小组共享文献知识库",
-    openGraph: { title: "Q-chip Literature Atlas", description: "把读过的论文，变成可检索的集体知识。", type: "website", images: [{ url: imageUrl, width: 1536, height: 1024, alt: "Q-chip Literature Atlas" }] },
-    twitter: { card: "summary_large_image", title: "Q-chip Literature Atlas", description: "RIQT Q-chip 小组共享文献知识库", images: [imageUrl] },
+    title: { default: "PhotonicsX × RIQT Literature Atlas", template: "%s · PhotonicsX × RIQT" },
+    description: "复旦大学未来信息创新学院 PhotonicsX 与香港理工大学量子技术研究中心 RIQT 联合文献知识库",
+    openGraph: { title: "PhotonicsX × RIQT Literature Atlas", description: "把读过的论文，变成可检索的集体知识。", type: "website", images: [{ url: imageUrl, width: 1536, height: 1024, alt: "PhotonicsX × RIQT Literature Atlas" }] },
+    twitter: { card: "summary_large_image", title: "PhotonicsX × RIQT Literature Atlas", description: "复旦大学 PhotonicsX × 香港理工大学 RIQT 联合文献库", images: [imageUrl] },
   };
 }
 
