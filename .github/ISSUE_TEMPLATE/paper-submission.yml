@@ -1,0 +1,98 @@
+name: 投稿论文条目
+description: 向 Paper Atlas 提交一篇待审核的光子学论文
+title: "[投稿] 论文英文标题"
+labels:
+  - submission
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢投稿。请尽可能完整填写；条目经维护者审核后才会公开收录。
+        关键图请在提交 Issue 后直接拖入正文或补充评论，并说明哪一张作为默认关键图；未指定时采用第一张。
+  - type: input
+    id: title
+    attributes:
+      label: 论文英文标题
+      placeholder: Full paper title
+    validations:
+      required: true
+  - type: input
+    id: title_zh
+    attributes:
+      label: 中文标题
+    validations:
+      required: true
+  - type: input
+    id: journal_date
+    attributes:
+      label: 期刊与发表年月
+      placeholder: Nature Photonics · 2026.03
+    validations:
+      required: true
+  - type: input
+    id: authors
+    attributes:
+      label: 主要作者
+      description: 请用顿号或分号分隔
+    validations:
+      required: true
+  - type: textarea
+    id: institutions
+    attributes:
+      label: 作者单位
+    validations:
+      required: true
+  - type: input
+    id: category
+    attributes:
+      label: 大类
+      description: 可填写现有分类，也可自定义
+      placeholder: 光计算
+    validations:
+      required: true
+  - type: input
+    id: subcategory
+    attributes:
+      label: 小类
+      description: 可填写现有分类，也可自定义
+      placeholder: 微环光计算
+    validations:
+      required: true
+  - type: input
+    id: keywords
+    attributes:
+      label: 标签关键词
+      placeholder: 微环, WDM, 矩阵乘法
+    validations:
+      required: true
+  - type: textarea
+    id: abstract_zh
+    attributes:
+      label: 中文摘要
+    validations:
+      required: true
+  - type: textarea
+    id: insight
+    attributes:
+      label: 50 字以内的要点创新点
+      description: 请用自己的话概括论文最值得回顾的一点
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: DOI、论文页面或 arXiv 链接
+    validations:
+      required: true
+  - type: textarea
+    id: figure_note
+    attributes:
+      label: 关键图说明
+      description: 写明图号、图注和希望设为默认关键图的图片；图片可在提交后拖入 Issue
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: 确认
+      options:
+        - label: 我确认以上信息可在公开网站展示，且关键图的使用符合原论文引用要求。
+          required: true

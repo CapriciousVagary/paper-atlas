@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="PhotonicsX × RIQT 联合文献库公开浏览镜像" />
+    <title>Paper Atlas · PhotonicsX × RIQT</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="返回首页">
+        <span class="brand-mark">PA</span>
+        <span><strong>Paper Atlas</strong><small>PhotonicsX × RIQT</small></span>
+      </a>
+      <nav aria-label="主导航">
+        <a href="#library">文献库</a>
+        <a href="#index">索引</a>
+        <a class="submit-link" href="https://github.com/CapriciousVagary/paper-atlas/issues/new?template=paper-submission.yml" target="_blank" rel="noreferrer">投稿论文 ↗</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">OPEN PHOTONICS LITERATURE ATLAS</p>
+          <h1>把读过的论文，<br />沉淀为可检索的<em>共同记忆</em></h1>
+          <p>复旦大学未来信息创新学院 PhotonicsX 课题组与香港理工大学 RIQT Q-chip 小组联合文献库。</p>
+          <label class="search">
+            <span aria-hidden="true">⌕</span>
+            <input id="searchInput" type="search" placeholder="检索标题、作者、单位、标签或研究内容…" autocomplete="off" />
+            <kbd>/</kbd>
+          </label>
+          <div class="stats"><span><b id="paperCount">3</b> 篇文献</span><span><b>3</b> 个方向</span><span>公开浏览镜像</span></div>
+        </div>
+        <div class="atlas" aria-hidden="true">
+          <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
+          <div class="core"><small>JOINT</small><b>Atlas</b></div>
+          <div class="node node-a"><b>OC</b><small>光计算</small></div>
+          <div class="node node-b"><b>TFLN</b><small>薄膜铌酸锂</small></div>
+          <div class="node node-c"><b>ECL</b><small>外腔激光器</small></div>
+        </div>
+      </section>
+
+      <aside class="mirror-note">
+        <span>STATIC MIRROR</span>
+        <p>此页面是面向公开访问的 GitHub Pages 浏览镜像。投稿通过 GitHub Issue 提交，审核后再收录。</p>
+        <a href="https://fudan-photonicsx-polyu-riqt.hitvagary.chatgpt.site" target="_blank" rel="noreferrer">访问完整功能站 ↗</a>
+      </aside>
+
+      <section class="library" id="library">
+        <div class="section-title">
+          <div><p class="eyebrow">RESEARCH DIRECTIONS</p><h2>按研究方向浏览</h2></div>
+          <button id="clearFilter" type="button">显示全部 <span>×</span></button>
+        </div>
+        <div class="category-grid" id="categoryGrid"></div>
+      </section>
+
+      <section class="papers" id="papers">
+        <div class="section-title">
+          <div><p class="eyebrow">PAPER COLLECTION</p><h2>文献条目</h2></div>
+          <p id="resultText">按发表时间排列</p>
+        </div>
+        <div class="paper-list" id="paperList"></div>
+        <div class="empty" id="emptyState" hidden><b>没有找到匹配的论文</b><span>换一个关键词或清除分类筛选试试。</span></div>
+      </section>
+
+      <section class="index-section" id="index">
+        <div><p class="eyebrow">QUICK INDEX</p><h2>作者与关键词索引</h2></div>
+        <div class="index-columns"><section><h3>主要作者</h3><div id="authorIndex"></div></section><section><h3>关键词</h3><div class="tag-cloud" id="tagIndex"></div></section></div>
+      </section>
+
+      <section class="contribute">
+        <div><p class="eyebrow">CONTRIBUTE TO THE ATLAS</p><h2>把下一篇好论文加入共同知识库</h2><p>按模板提供题录、中文摘要、关键图与 50 字以内创新点；维护者审核后公开。</p></div>
+        <a href="https://github.com/CapriciousVagary/paper-atlas/issues/new?template=paper-submission.yml" target="_blank" rel="noreferrer">提交文献条目 <span>→</span></a>
+      </section>
+    </main>
+
+    <dialog id="paperDialog">
+      <button class="dialog-close" id="dialogClose" type="button" aria-label="关闭">×</button>
+      <div id="dialogContent"></div>
+    </dialog>
+
+    <footer><span>Paper Atlas · PhotonicsX × RIQT</span><span>GitHub Pages public mirror</span></footer>
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
