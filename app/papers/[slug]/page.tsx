@@ -58,7 +58,7 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
         <div className="breadcrumb"><Link href="/">文献库</Link><span>/</span><Link href={`/?category=${encodeURIComponent(paper.category)}`}>{paper.category}</Link><span>/</span><b>{paper.subcategory}</b></div>
         <section className="paper-detail-hero" style={{ "--paper-accent": paper.accent } as React.CSSProperties}>
           <div className="detail-copy">
-            <div className="detail-badges"><span>{paper.category}</span><span>{paper.subcategory}</span>{paper.sample && <em>示例条目</em>}</div>
+            <div className="detail-badges"><span>{paper.category}</span><span>{paper.subcategory}</span>{paper.verificationStatus && <em>{paper.verificationStatus === "verified" ? "题名 / DOI 已核验" : "论文 PDF 人工核验"}</em>}</div>
             <h1>{paper.title}</h1><p className="detail-title-zh">{paper.titleZh}</p>
             <div className="citation-line"><strong>{paper.journal}</strong><span>{paper.published}</span></div>
             <div className="author-line"><b>{paper.authors.join(" · ")}</b><span>{paper.institutions.join("；")}</span></div>
@@ -76,8 +76,8 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
           </article>
           <aside className="detail-sidebar">
             <section><span className="section-kicker">QUICK RECALL</span><h3>回顾卡</h3><dl><div><dt>研究问题</dt><dd>该工作试图解决什么瓶颈？</dd></div><div><dt>核心方法</dt><dd>{paper.subcategory} · {paper.keywords[0]}</dd></div><div><dt>验证方式</dt><dd>实验结果与模型分析分层记录</dd></div></dl></section>
-            <section><span className="section-kicker">KEYWORDS</span>{paper.sample ? <><div className="keyword-cloud">{paper.keywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div><small className="tag-status">示例条目仅展示标签；正式投稿发布后可继续补充。</small></> : <KeywordEditor paperSlug={paper.slug} initialKeywords={paper.keywords} />}</section>
-            <section className="source-box"><span className="section-kicker">SOURCE</span><p>{paper.pdfUrl || paper.sourceUrl ? "可从下方打开投稿者提供的论文来源。" : "PDF、DOI 与补充材料将在上传真实论文后显示。"}</p>{paper.pdfUrl ? <a href={paper.pdfUrl} target="_blank" rel="noreferrer">打开上传 PDF ↗</a> : paper.sourceUrl ? <a href={paper.sourceUrl} target="_blank" rel="noreferrer">打开论文来源 ↗</a> : <button disabled>暂无原文</button>}</section>
+            <section><span className="section-kicker">KEYWORDS</span>{paper.verificationStatus || paper.sample ? <><div className="keyword-cloud">{paper.keywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div><small className="tag-status">如需调整这些初始标签，可在评论中注明或联系维护者批量修改。</small></> : <KeywordEditor paperSlug={paper.slug} initialKeywords={paper.keywords} />}</section>
+            <section className="source-box"><span className="section-kicker">SOURCE</span><p>{paper.doi ? `DOI：${paper.doi}` : paper.pdfUrl || paper.sourceUrl ? "可从下方打开投稿者提供的论文来源。" : "暂未提供论文来源。"}</p>{paper.pdfUrl ? <a href={paper.pdfUrl} target="_blank" rel="noreferrer">打开上传 PDF ↗</a> : paper.sourceUrl ? <a href={paper.sourceUrl} target="_blank" rel="noreferrer">打开论文来源 ↗</a> : <button disabled>暂无原文</button>}</section>
           </aside>
         </div>
       </div>

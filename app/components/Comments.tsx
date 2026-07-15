@@ -4,21 +4,18 @@ import { FormEvent, useEffect, useState } from "react";
 
 type Comment = { id: number | string; author: string; content: string; createdAt: string };
 
-const starterComments: Comment[] = [
-  { id: "sample-1", author: "组内讨论示例", content: "建议后续补充器件标定流程，并把实验值与理论上限分开记录。", createdAt: "示例内容" },
-];
-
 export function Comments({ paperSlug }: { paperSlug: string }) {
-  const [comments, setComments] = useState<Comment[]>(starterComments);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [author, setAuthor] = useState("");
   const [content, setContent] = useState("");
   const [status, setStatus] = useState("");
+  const [kind, setKind] = useState<"comment" | "note">("comment");
 
   useEffect(() => {
     fetch(`/api/comments?paperSlug=${encodeURIComponent(paperSlug)}`)
       .then((response) => (response.ok ? response.json() : { comments: [] }))
-      .then((data) => data.comments?.length && setComments(data.comments))
-      .catch(() => undefined);
+      .then((data) => setComments(data.comments ?? []))
+      .catch(() => setStatus("暂时无法读取讨论，请稍后重试。"));
   }, [paperSlug]);
 
   async function submit(event: FormEvent) {
@@ -28,15 +25,16 @@ export function Comments({ paperSlug }: { paperSlug: string }) {
     const response = await fetch("/api/comments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paperSlug, author, content }),
+      body: JSON.stringify({ paperSlug, author, content: kind === "note" ? `【注释】${content}` : content }),
     });
     if (response.ok) {
       const data = await response.json();
-      setComments((current) => [data.comment, ...current.filter((item) => !String(item.id).startsWith("sample"))]);
+      setComments((current) => [data.comment, ...current]);
       setContent("");
       setStatus("已发布");
     } else {
-      setStatus("本地预览尚未初始化数据库，部署后即可保存评论。");
+      const data = await response.json().catch(() => ({}));
+      setStatus(data.error ?? "发布失败，请稍后重试。");
     }
   }
 
@@ -46,13 +44,15 @@ export function Comments({ paperSlug }: { paperSlug: string }) {
       <form onSubmit={submit} className="comment-form">
         <div className="avatar">Q</div>
         <div className="comment-fields">
+          <div className="comment-kind"><button type="button" className={kind === "comment" ? "active" : ""} onClick={() => setKind("comment")}>评论</button><button type="button" className={kind === "note" ? "active" : ""} onClick={() => setKind("note")}>补充注释</button></div>
           <input value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="你的姓名" aria-label="姓名" />
-          <textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="记录疑问、复现实验或关联论文…" aria-label="评论内容" rows={3} />
+          <textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder={kind === "note" ? "补充参数、图表解读、复现细节或更正…" : "记录疑问、讨论观点或关联论文…"} aria-label="评论内容" rows={3} />
           <div><small>{status}</small><button type="submit">发布评论</button></div>
         </div>
       </form>
       <div className="comment-list">
-        {comments.map((comment) => <article key={comment.id}><div className="avatar muted">{comment.author.slice(0, 1)}</div><div><b>{comment.author}</b><time>{comment.createdAt}</time><p>{comment.content}</p></div></article>)}
+        {comments.map((comment) => { const isNote = comment.content.startsWith("【注释】"); return <article className={isNote ? "note" : ""} key={comment.id}><div className="avatar muted">{comment.author.slice(0, 1)}</div><div><b>{comment.author}</b>{isNote && <em>补充注释</em>}<time>{comment.createdAt}</time><p>{isNote ? comment.content.slice(4) : comment.content}</p></div></article>; })}
+        {!comments.length && <div className="comments-empty">还没有讨论或注释，欢迎留下第一条。</div>}
       </div>
     </section>
   );

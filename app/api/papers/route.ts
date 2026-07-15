@@ -1,7 +1,10 @@
 import { env } from "cloudflare:workers";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { papers } from "../../../db/schema";
+import { ensureDatabase } from "../../../db/ensure";
+import { papers as storedPapers } from "../../../db/schema";
+import { papers as curatedPapers } from "../../data";
+import { rankMatches, type MatchablePaper } from "../../lib/paper-match";
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
 const MAX_FIGURE_BYTES = 8 * 1024 * 1024;
@@ -27,7 +30,8 @@ function safeFilename(name: string) {
 
 export async function GET() {
   try {
-    const rows = await getDb().select().from(papers).where(eq(papers.status, "approved")).orderBy(desc(papers.createdAt)).limit(200);
+    await ensureDatabase();
+    const rows = await getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).orderBy(desc(storedPapers.createdAt)).limit(200);
     return Response.json({
       papers: rows.map((paper) => ({
         ...paper,
@@ -44,6 +48,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    await ensureDatabase();
     const form = await request.formData();
     const title = String(form.get("title") ?? "").trim();
     const category = String(form.get("category") ?? "").trim().slice(0, 80);
@@ -51,6 +56,19 @@ export async function POST(request: Request) {
     const submitterName = String(form.get("submitterName") ?? "").trim().slice(0, 80);
     if (!title || !category || !subcategory || !submitterName) {
       return Response.json({ error: "标题、分类和投稿人姓名为必填项" }, { status: 400 });
+    }
+
+    const sourceUrl = String(form.get("sourceUrl") ?? "").trim();
+    if (String(form.get("confirmDuplicate") ?? "0") !== "1") {
+      const candidates: MatchablePaper[] = curatedPapers.map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: paper.titleZh, journal: paper.journal, published: paper.published, doi: paper.doi, sourceUrl: paper.sourceUrl }));
+      try {
+        const existing = await getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).limit(500);
+        candidates.push(...existing.map((paper) => ({ slug: paper.slug, title: paper.title, titleZh: undefined, journal: paper.journal, published: paper.published, doi: undefined, sourceUrl: paper.sourceUrl })));
+      } catch {
+        // Curated records still protect against duplicates in local preview.
+      }
+      const duplicates = rankMatches(candidates, title, sourceUrl, 0.72).slice(0, 5);
+      if (duplicates.length) return Response.json({ error: "检测到可能重复的论文，请预览后确认是否继续投稿。", duplicates }, { status: 409 });
     }
 
     const slug = slugify(title);
@@ -85,7 +103,7 @@ export async function POST(request: Request) {
     const requestedKeyIndex = Number.parseInt(String(form.get("keyFigureIndex") ?? "0"), 10);
     const keyFigureKey = figureKeys[Math.min(Math.max(Number.isFinite(requestedKeyIndex) ? requestedKeyIndex : 0, 0), Math.max(figureKeys.length - 1, 0))] ?? null;
 
-    const [paper] = await getDb().insert(papers).values({
+    const [paper] = await getDb().insert(storedPapers).values({
       slug,
       title: title.slice(0, 500),
       category,
@@ -97,7 +115,7 @@ export async function POST(request: Request) {
       abstractZh: String(form.get("abstractZh") ?? "").trim(),
       insight: String(form.get("insight") ?? "").trim().slice(0, 50),
       tags: JSON.stringify(tags),
-      sourceUrl: String(form.get("sourceUrl") ?? "").trim(),
+      sourceUrl,
       fileKey,
       figureKeys: JSON.stringify(figureKeys),
       keyFigureKey,
