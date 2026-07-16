@@ -32,6 +32,7 @@ export function ensureDatabase() {
         figure_caption text DEFAULT '' NOT NULL,
         submitter_name text DEFAULT '匿名投稿者' NOT NULL,
         submitter_email text DEFAULT '' NOT NULL,
+        upload_token text DEFAULT '' NOT NULL,
         status text DEFAULT 'pending' NOT NULL,
         reviewed_at text,
         created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -73,6 +74,9 @@ export function ensureDatabase() {
     }
     if (!paperColumns.results.some((column) => column.name === "doi")) {
       await d1.prepare("ALTER TABLE papers ADD COLUMN doi text DEFAULT '' NOT NULL").run();
+    }
+    if (!paperColumns.results.some((column) => column.name === "upload_token")) {
+      await d1.prepare("ALTER TABLE papers ADD COLUMN upload_token text DEFAULT '' NOT NULL").run();
     }
   })().catch((error) => { initialized = undefined; throw error; });
   return initialized;

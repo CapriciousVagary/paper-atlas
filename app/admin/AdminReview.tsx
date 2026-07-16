@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { authorRoleLabels, getClassifications, type AuthorDetail, type AuthorRole, type Paper } from "../data";
+import { uploadFileInChunks } from "../lib/chunk-upload";
 
 type AdminPaper = Paper & {
   id?: number;
@@ -125,8 +126,26 @@ export default function AdminReview() {
     if (!response.ok) { setStatus(data.error ?? "保存失败，请重试。"); return; }
     if (media.length || clearExistingImage) {
       setStatus("论文信息已保存，正在更新关键图…");
-      const form = new FormData(); form.set("slug", editing.slug); form.set("recordType", editing.recordType); form.set("clear", clearExistingImage ? "1" : "0"); form.set("keyFigureIndex", String(keyMediaIndex)); form.set("figureCaption", editing.figureCaption); media.forEach((item) => form.append("figures", item.file));
-      const mediaResponse = await fetch("/api/admin/papers/media", { method: "POST", headers: { "x-admin-key": key }, body: form });
+      const figureKeys: string[] = [];
+      try {
+        for (let index = 0; index < media.length; index += 1) {
+          figureKeys.push(await uploadFileInChunks({
+            file: media[index].file,
+            slug: editing.slug,
+            kind: "figure",
+            adminKey: key,
+            onProgress: (progress) => setStatus(`正在上传关键图 ${index + 1}/${media.length}：${Math.round(progress * 100)}%`),
+          }));
+        }
+      } catch (error) {
+        setStatus(`论文文字已保存，但图片上传失败：${error instanceof Error ? error.message : "请重试"}`);
+        return;
+      }
+      const mediaResponse = await fetch("/api/admin/papers/media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-key": key },
+        body: JSON.stringify({ slug: editing.slug, recordType: editing.recordType, clear: clearExistingImage, keyFigureIndex: keyMediaIndex, figureCaption: editing.figureCaption, figureKeys }),
+      });
       const mediaData = await mediaResponse.json().catch(() => ({}));
       if (!mediaResponse.ok) { setStatus(`论文文字已保存，但图片更新失败：${mediaData.error ?? "请重试"}`); return; }
     }

@@ -25,6 +25,7 @@ export const papers = sqliteTable("papers", {
   figureCaption: text("figure_caption").notNull().default(""),
   submitterName: text("submitter_name").notNull().default("匿名投稿者"),
   submitterEmail: text("submitter_email").notNull().default(""),
+  uploadToken: text("upload_token").notNull().default(""),
   status: text("status").notNull().default("pending"),
   reviewedAt: text("reviewed_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),

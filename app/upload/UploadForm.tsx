@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { authorRoleLabels, categories, papers, type AuthorDetail, type AuthorRole } from "../data";
+import { uploadFileInChunks } from "../lib/chunk-upload";
 
 const CUSTOM = "__custom__";
 type Duplicate = { slug: string; title: string; titleZh?: string; journal?: string; published?: string; matchReason: string; score: number };
@@ -25,6 +26,8 @@ export default function UploadForm() {
   const [figures, setFigures] = useState<Array<{ file: File; url: string }>>([]);
   const figuresRef = useRef<Array<{ file: File; url: string }>>([]);
   const [draggingFigures, setDraggingFigures] = useState(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [draggingPdf, setDraggingPdf] = useState(false);
   const [keyFigureIndex, setKeyFigureIndex] = useState(0);
   const [status, setStatus] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -111,6 +114,13 @@ export default function UploadForm() {
     setKeyFigureIndex((current) => current === index ? 0 : current > index ? current - 1 : current);
   }
 
+  function choosePdf(file: File | null) {
+    if (!file) { setPdfFile(null); return; }
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setStatus("论文文件必须是 PDF。"); return; }
+    if (file.size > 50 * 1024 * 1024) { setStatus("PDF 需小于 50 MB。"); return; }
+    setPdfFile(file); setStatus(`已选择 PDF：${file.name}`);
+  }
+
   async function loadInstitutions(query: string) {
     try {
       const response = await fetch(`/api/institutions?q=${encodeURIComponent(query)}`);
@@ -134,6 +144,7 @@ export default function UploadForm() {
       setStatus("请填写完整的大类和小类。");
       return;
     }
+    if (!pdfFile && !sourceUrl.trim()) { setStatus("请上传 PDF，或填写 DOI / arXiv / 论文链接。"); return; }
     setStatus("正在提交…");
     const form = new FormData(event.currentTarget);
     form.set("category", resolvedCategory);
@@ -142,16 +153,35 @@ export default function UploadForm() {
     form.set("confirmDuplicate", duplicateConfirmed ? "1" : "0");
     form.set("authorDetails", JSON.stringify(authors.filter((author) => author.name.trim()).map((author) => ({ name: author.name, role: author.role, institution: author.institution, aliases: author.aliases, note: author.note }))));
     form.set("classifications", JSON.stringify(extraClassifications.filter((item) => item.category.trim() && item.subcategory.trim())));
+    form.delete("file");
     form.delete("figures");
-    figures.forEach((item) => form.append("figures", item.file));
     const response = await fetch("/api/papers", { method: "POST", body: form });
     const data = await response.json().catch(() => ({}));
     if (response.status === 409) {
       setDuplicates(data.duplicates ?? []);
       setStatus("检测到可能重复的条目。请先查看下方结果；确认不是重复后仍可继续提交。");
     } else if (response.ok) {
-      setSubmitted(true);
-      setStatus(data.message ?? "投稿已提交，等待管理员审核。");
+      const slug = String(data.paper?.slug ?? "");
+      const uploadToken = String(data.uploadToken ?? "");
+      try {
+        let pdfKey: string | null = null;
+        if (pdfFile) {
+          setStatus(`正在分块上传 PDF：${pdfFile.name}`);
+          pdfKey = await uploadFileInChunks({ file: pdfFile, slug, kind: "pdf", uploadToken, onProgress: (progress) => setStatus(`正在上传 PDF：${Math.round(progress * 100)}%`) });
+        }
+        const figureKeys: string[] = [];
+        for (let index = 0; index < figures.length; index += 1) {
+          const item = figures[index];
+          setStatus(`正在上传关键图 ${index + 1}/${figures.length}：${item.file.name}`);
+          figureKeys.push(await uploadFileInChunks({ file: item.file, slug, kind: "figure", uploadToken, onProgress: (progress) => setStatus(`关键图 ${index + 1}/${figures.length}：${Math.round(progress * 100)}%`) }));
+        }
+        const finalize = await fetch("/api/uploads/finalize", { method: "POST", headers: { "Content-Type": "application/json", "x-upload-token": uploadToken }, body: JSON.stringify({ slug, pdfKey, figureKeys, keyFigureIndex, figureCaption: String(form.get("figureCaption") ?? "") }) });
+        const finalizeData = await finalize.json().catch(() => ({}));
+        if (!finalize.ok) throw new Error(finalizeData.error ?? "附件写回论文条目失败");
+        setSubmitted(true); setStatus("投稿和附件均已提交，等待管理员审核。");
+      } catch (error) {
+        setSubmitted(true); setStatus(`论文信息已进入待审核，但附件上传失败：${error instanceof Error ? error.message : "请管理员在审核台补充"}`);
+      }
     } else {
       setStatus(data.error ?? "提交失败，请检查文件和表单内容。");
     }
@@ -169,7 +199,9 @@ export default function UploadForm() {
 
       <form className="upload-form" onSubmit={submit}>
         <div className="form-section-title"><span>01</span><div><b>论文来源</b><small>PDF 与 DOI 至少填写一项</small></div></div>
-        <label className="drop-zone"><input type="file" name="file" accept="application/pdf" /><span className="upload-icon">↑</span><b>拖入论文 PDF，或点击选择文件</b><small>PDF 不超过 50 MB</small></label>
+        <label className={`drop-zone ${draggingPdf ? "dragging" : ""}`} onDragEnter={(event) => { event.preventDefault(); setDraggingPdf(true); }} onDragOver={(event) => { event.preventDefault(); setDraggingPdf(true); }} onDragLeave={() => setDraggingPdf(false)} onDrop={(event) => { event.preventDefault(); setDraggingPdf(false); choosePdf(Array.from(event.dataTransfer.files).find((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) ?? null); }}><input type="file" accept="application/pdf,.pdf" onChange={(event) => { choosePdf(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} /><span className="upload-icon">↑</span><b>{pdfFile ? pdfFile.name : "拖入论文 PDF，或点击选择文件"}</b><small>{pdfFile ? `${(pdfFile.size / 1024 / 1024).toFixed(1)} MB · 将使用分块上传` : "PDF 不超过 50 MB"}</small></label>
+        {pdfFile && <button className="clear-pdf" type="button" onClick={() => setPdfFile(null)}>移除已选 PDF</button>}
+        <div className="extraction-note"><b>当前不会自动解析 PDF</b><span>PDF 仅作为原文附件保存；标题、DOI、期刊、作者和摘要仍以本页填写内容为准。自动提取会作为后续升级功能。</span></div>
         <div className="or-divider"><span>或</span></div>
         <label className="field-label">DOI / arXiv / 论文链接<input name="sourceUrl" value={sourceUrl} onChange={(event) => { setSourceUrl(event.target.value); setDuplicateConfirmed(false); }} placeholder="例如：10.1038/s41566-..." /></label>
 

@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDatabase } from "../../../db/ensure";
@@ -7,10 +6,6 @@ import { papers as curatedPapers } from "../../data";
 import type { AuthorDetail, AuthorRole, Classification } from "../../data";
 import { canonicalizeInstitution } from "../../lib/institutions";
 import { rankMatches, type MatchablePaper } from "../../lib/paper-match";
-
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
-const MAX_FIGURE_BYTES = 8 * 1024 * 1024;
-const ALLOWED_FIGURE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function slugify(title: string) {
   const base = title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 64);
@@ -58,10 +53,6 @@ function parseClassifications(value: FormDataEntryValue | null, category: string
   }
 }
 
-function safeFilename(name: string) {
-  return name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
-}
-
 export async function GET() {
   try {
     await ensureDatabase();
@@ -71,15 +62,26 @@ export async function GET() {
     ]);
     return Response.json({
       papers: rows.map((paper) => ({
-        ...paper,
+        slug: paper.slug,
+        title: paper.title,
         titleZh: paper.titleZh,
         doi: paper.doi || undefined,
+        category: paper.category,
+        subcategory: paper.subcategory,
+        journal: paper.journal,
+        published: paper.published,
         authors: JSON.parse(paper.authors || "[]"),
         institutions: JSON.parse(paper.institutions || "[]"),
         authorDetails: JSON.parse(paper.authorDetails || "[]"),
         classifications: JSON.parse(paper.classifications || "[]"),
+        abstractZh: paper.abstractZh,
+        insight: paper.insight,
         keywords: JSON.parse(paper.tags || "[]"),
+        figureCaption: paper.figureCaption,
+        sourceUrl: paper.sourceUrl || undefined,
+        createdAt: paper.createdAt,
         figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
+        pdfUrl: paper.fileKey ? `/api/papers/${encodeURIComponent(paper.slug)}/pdf` : undefined,
       })),
       overrides: Object.fromEntries(edits.map((edit) => {
         const { _figureKeys: _ignoredKeys, _keyFigureKey: _ignoredKey, ...publicData } = JSON.parse(edit.data || "{}") as Record<string, unknown>;
@@ -125,31 +127,7 @@ export async function POST(request: Request) {
     const institutions = [...new Set(authorDetails.map((author) => author.institution).filter((item): item is string => Boolean(item)))];
     const tags = parseTags(String(form.get("tags") ?? ""));
     const classifications = parseClassifications(form.get("classifications"), category, subcategory);
-    const storage = (env as unknown as { PAPERS: R2Bucket }).PAPERS;
-    const file = form.get("file");
-    let fileKey: string | null = null;
-
-    if (file instanceof File && file.size > 0) {
-      if (file.type !== "application/pdf" || file.size > MAX_PDF_BYTES) {
-        return Response.json({ error: "PDF 需小于 50 MB" }, { status: 400 });
-      }
-      fileKey = `papers/${slug}/paper-${safeFilename(file.name)}`;
-      await storage.put(fileKey, file.stream(), { httpMetadata: { contentType: file.type }, customMetadata: { title } });
-    }
-
-    const figures = form.getAll("figures").filter((item): item is File => item instanceof File && item.size > 0).slice(0, 8);
-    if (figures.some((figure) => !ALLOWED_FIGURE_TYPES.has(figure.type) || figure.size > MAX_FIGURE_BYTES)) {
-      return Response.json({ error: "关键图仅支持 JPG、PNG、WebP，单张不超过 8 MB" }, { status: 400 });
-    }
-    const figureKeys: string[] = [];
-    for (let index = 0; index < figures.length; index += 1) {
-      const figure = figures[index];
-      const key = `papers/${slug}/figures/${index + 1}-${safeFilename(figure.name)}`;
-      await storage.put(key, figure.stream(), { httpMetadata: { contentType: figure.type }, customMetadata: { title, order: String(index + 1) } });
-      figureKeys.push(key);
-    }
-    const requestedKeyIndex = Number.parseInt(String(form.get("keyFigureIndex") ?? "0"), 10);
-    const keyFigureKey = figureKeys[Math.min(Math.max(Number.isFinite(requestedKeyIndex) ? requestedKeyIndex : 0, 0), Math.max(figureKeys.length - 1, 0))] ?? null;
+    const uploadToken = crypto.randomUUID();
 
     const [paper] = await getDb().insert(storedPapers).values({
       slug,
@@ -168,16 +146,17 @@ export async function POST(request: Request) {
       insight: String(form.get("insight") ?? "").trim().slice(0, 50),
       tags: JSON.stringify(tags),
       sourceUrl,
-      fileKey,
-      figureKeys: JSON.stringify(figureKeys),
-      keyFigureKey,
+      fileKey: null,
+      figureKeys: "[]",
+      keyFigureKey: null,
       figureCaption: String(form.get("figureCaption") ?? "").trim().slice(0, 500),
       submitterName,
       submitterEmail: String(form.get("submitterEmail") ?? "").trim().slice(0, 200),
+      uploadToken,
       status: "pending",
     }).returning();
 
-    return Response.json({ paper, message: "投稿已提交，管理员审核通过后将公开显示。" }, { status: 201 });
+    return Response.json({ paper: { id: paper.id, slug: paper.slug, title: paper.title }, uploadToken, message: "论文信息已提交，正在上传附件。" }, { status: 201 });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to create paper" }, { status: 500 });
   }
