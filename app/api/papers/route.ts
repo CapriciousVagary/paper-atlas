@@ -17,9 +17,10 @@ function slugify(title: string) {
   return `${base || "paper"}-${Date.now().toString(36)}`;
 }
 
-function parseJournal(value: string) {
-  const [journal = "待补充", published = "待补充"] = value.split("·").map((part) => part.trim());
-  return { journal: journal || "待补充", published: published || "待补充" };
+function parseJournal(journalValue: string, publishedValue: string) {
+  const journal = journalValue.trim().slice(0, 200) || "待补充";
+  const published = publishedValue.trim().replace(/^(\d{4})-(\d{2})$/, "$1.$2").slice(0, 40) || "待补充";
+  return { journal, published };
 }
 
 function parseTags(value: string) {
@@ -80,7 +81,11 @@ export async function GET() {
         keywords: JSON.parse(paper.tags || "[]"),
         figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
       })),
-      overrides: Object.fromEntries(edits.map((edit) => [edit.slug, JSON.parse(edit.data || "{}")])),
+      overrides: Object.fromEntries(edits.map((edit) => {
+        const { _figureKeys: _ignoredKeys, _keyFigureKey: _ignoredKey, ...publicData } = JSON.parse(edit.data || "{}") as Record<string, unknown>;
+        void _ignoredKeys; void _ignoredKey;
+        return [edit.slug, publicData];
+      })),
     });
   } catch {
     return Response.json({ papers: [] });
@@ -114,7 +119,7 @@ export async function POST(request: Request) {
     }
 
     const slug = slugify(title);
-    const { journal, published } = parseJournal(String(form.get("journal") ?? ""));
+    const { journal, published } = parseJournal(String(form.get("journal") ?? ""), String(form.get("published") ?? ""));
     const authorDetails = parseAuthorDetails(form.get("authorDetails"));
     const authors = authorDetails.map((author) => author.name);
     const institutions = [...new Set(authorDetails.map((author) => author.institution).filter((item): item is string => Boolean(item)))];

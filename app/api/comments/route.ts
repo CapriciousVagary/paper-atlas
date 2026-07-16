@@ -31,6 +31,19 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PUT(request: Request) {
+  await ensureDatabase();
+  const expected = (env as unknown as { ADMIN_REVIEW_KEY?: string }).ADMIN_REVIEW_KEY;
+  if (!expected || request.headers.get("x-admin-key") !== expected) return Response.json({ error: "无权修改评论" }, { status: 401 });
+  const payload = await request.json() as { id?: number; author?: string; content?: string };
+  const id = Number(payload.id);
+  const author = String(payload.author ?? "").trim().slice(0, 80);
+  const content = String(payload.content ?? "").trim().slice(0, 2000);
+  if (!Number.isInteger(id) || id < 1 || !author || !content) return Response.json({ error: "评论编号、姓名和内容不能为空" }, { status: 400 });
+  const [updated] = await getDb().update(comments).set({ author, content }).where(eq(comments.id, id)).returning();
+  return updated ? Response.json({ comment: updated }) : Response.json({ error: "评论不存在" }, { status: 404 });
+}
+
 export async function DELETE(request: Request) {
   await ensureDatabase();
   const expected = (env as unknown as { ADMIN_REVIEW_KEY?: string }).ADMIN_REVIEW_KEY;

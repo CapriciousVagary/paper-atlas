@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { authorRoleLabels, categories, type AuthorDetail, type AuthorRole } from "../data";
+import { authorRoleLabels, categories, papers, type AuthorDetail, type AuthorRole } from "../data";
 
 const CUSTOM = "__custom__";
 type Duplicate = { slug: string; title: string; titleZh?: string; journal?: string; published?: string; matchReason: string; score: number };
@@ -23,6 +23,8 @@ export default function UploadForm() {
   const [customCategory, setCustomCategory] = useState("");
   const [customSubcategory, setCustomSubcategory] = useState("");
   const [figures, setFigures] = useState<Array<{ file: File; url: string }>>([]);
+  const figuresRef = useRef<Array<{ file: File; url: string }>>([]);
+  const [draggingFigures, setDraggingFigures] = useState(false);
   const [keyFigureIndex, setKeyFigureIndex] = useState(0);
   const [status, setStatus] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -33,6 +35,7 @@ export default function UploadForm() {
   const [authors, setAuthors] = useState<AuthorRow[]>(initialAuthors);
   const [institutionOptions, setInstitutionOptions] = useState<InstitutionOption[]>([]);
   const [extraClassifications, setExtraClassifications] = useState<ExtraClassification[]>([]);
+  const [journalOptions, setJournalOptions] = useState(() => [...new Set(papers.map((paper) => paper.journal).filter((name) => name && name !== "待补充"))].sort((a, b) => a.localeCompare(b)));
 
   const subcategoryOptions = useMemo(
     () => categories.find((item) => item.name === categoryChoice)?.subcategories ?? [],
@@ -41,9 +44,41 @@ export default function UploadForm() {
   const resolvedCategory = categoryChoice === CUSTOM ? customCategory.trim() : categoryChoice;
   const resolvedSubcategory = subcategoryChoice === CUSTOM || categoryChoice === CUSTOM ? customSubcategory.trim() : subcategoryChoice;
 
-  useEffect(() => () => figures.forEach((item) => URL.revokeObjectURL(item.url)), [figures]);
+  const addFigureFiles = useCallback((incoming: File[]) => {
+    setFigures((current) => {
+      const accepted = incoming.filter((file) => ["image/jpeg", "image/png", "image/webp"].includes(file.type));
+      const seen = new Set(current.map((item) => `${item.file.name}\u0000${item.file.size}\u0000${item.file.lastModified}`));
+      const files = [...current.map((item) => item.file), ...accepted.filter((file) => !seen.has(`${file.name}\u0000${file.size}\u0000${file.lastModified}`))].slice(0, 8);
+      current.forEach((item) => URL.revokeObjectURL(item.url));
+      return files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+    });
+  }, []);
+
+  useEffect(() => { figuresRef.current = figures; }, [figures]);
+  useEffect(() => () => figuresRef.current.forEach((item) => URL.revokeObjectURL(item.url)), []);
 
   useEffect(() => { void loadInstitutions(""); }, []);
+
+  useEffect(() => {
+    fetch("/api/papers").then((response) => response.ok ? response.json() : { papers: [] }).then((data) => {
+      const names = (data.papers ?? []).map((paper: { journal?: string }) => paper.journal).filter((name: string | undefined): name is string => Boolean(name && name !== "待补充"));
+      setJournalOptions((current) => [...new Set([...current, ...names])].sort((a, b) => a.localeCompare(b)));
+    }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    function pasteImages(event: ClipboardEvent) {
+      const files = Array.from(event.clipboardData?.items ?? []).filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item, index) => {
+        const source = item.getAsFile();
+        if (!source) return null;
+        const extension = source.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
+        return new File([source], `clipboard-${Date.now()}-${index + 1}.${extension}`, { type: source.type });
+      }).filter((file): file is File => Boolean(file));
+      if (files.length) { event.preventDefault(); addFigureFiles(files); setStatus(`已从剪贴板加入 ${files.length} 张图片。`); }
+    }
+    window.addEventListener("paste", pasteImages);
+    return () => window.removeEventListener("paste", pasteImages);
+  }, [addFigureFiles]);
 
   useEffect(() => {
     if (title.trim().length < 3 && !sourceUrl.trim()) {
@@ -68,11 +103,12 @@ export default function UploadForm() {
     setSubcategoryChoice(first);
   }
 
-  function chooseFigures(fileList: FileList | null) {
-    figures.forEach((item) => URL.revokeObjectURL(item.url));
-    const next = Array.from(fileList ?? []).slice(0, 8).map((file) => ({ file, url: URL.createObjectURL(file) }));
-    setFigures(next);
-    setKeyFigureIndex(0);
+  function removeFigure(index: number) {
+    setFigures((current) => {
+      current.forEach((item) => URL.revokeObjectURL(item.url));
+      return current.filter((_, itemIndex) => itemIndex !== index).map((item) => ({ file: item.file, url: URL.createObjectURL(item.file) }));
+    });
+    setKeyFigureIndex((current) => current === index ? 0 : current > index ? current - 1 : current);
   }
 
   async function loadInstitutions(query: string) {
@@ -106,6 +142,8 @@ export default function UploadForm() {
     form.set("confirmDuplicate", duplicateConfirmed ? "1" : "0");
     form.set("authorDetails", JSON.stringify(authors.filter((author) => author.name.trim()).map((author) => ({ name: author.name, role: author.role, institution: author.institution, aliases: author.aliases, note: author.note }))));
     form.set("classifications", JSON.stringify(extraClassifications.filter((item) => item.category.trim() && item.subcategory.trim())));
+    form.delete("figures");
+    figures.forEach((item) => form.append("figures", item.file));
     const response = await fetch("/api/papers", { method: "POST", body: form });
     const data = await response.json().catch(() => ({}));
     if (response.status === 409) {
@@ -136,7 +174,8 @@ export default function UploadForm() {
         <label className="field-label">DOI / arXiv / 论文链接<input name="sourceUrl" value={sourceUrl} onChange={(event) => { setSourceUrl(event.target.value); setDuplicateConfirmed(false); }} placeholder="例如：10.1038/s41566-..." /></label>
 
         <div className="form-section-title"><span>02</span><div><b>基础信息</b><small>请以论文原文为准</small></div></div>
-        <div className="form-grid"><label className="field-label">论文标题<input name="title" required value={title} onChange={(event) => { setTitle(event.target.value); setDuplicateConfirmed(false); }} placeholder="英文原始标题" /></label><label className="field-label">期刊与年月<input name="journal" placeholder="Nature Photonics · 2026.03" /></label></div>
+        <label className="field-label">论文标题<input name="title" required value={title} onChange={(event) => { setTitle(event.target.value); setDuplicateConfirmed(false); }} placeholder="英文原始标题" /></label>
+        <div className="form-grid"><label className="field-label">期刊名称<input name="journal" list="journal-options" placeholder="选择已有期刊或直接输入全称" /><datalist id="journal-options">{journalOptions.map((journal) => <option value={journal} key={journal} />)}</datalist><small className="field-help">输入时会提示已收录期刊，也允许填写新的期刊名称。</small></label><label className="field-label">发表年月<input name="published" type="month" /><small className="field-help">使用月份选择器；不确定时可暂时留空。</small></label></div>
         {duplicates.length > 0 && <div className="duplicate-warning"><div><b>可能已经收录</b><span>标题或 DOI 与现有条目接近，请先预览再判断。</span></div>{duplicates.map((paper) => <Link href={`/papers/${paper.slug}`} target="_blank" key={paper.slug}><span>{paper.matchReason} · {Math.round(paper.score * 100)}%</span><strong>{paper.title}</strong><small>{paper.journal || "期刊待补充"} · {paper.published || "年月待补充"}　预览本站详情 ↗</small></Link>)}<label><input type="checkbox" checked={duplicateConfirmed} onChange={(event) => setDuplicateConfirmed(event.target.checked)} />我已查看，确认仍要继续投稿</label></div>}
         <div className="author-editor">
           <div className="author-editor-heading"><div><b>关键作者与单位（可选）</b><small>默认展示第一作者、共同一作、通讯作者和投稿者重点关注的作者</small></div><button type="button" onClick={() => addAuthor()}>＋ 添加作者</button></div>
@@ -173,8 +212,8 @@ export default function UploadForm() {
         <label className="field-label">50字以内创新点<textarea name="insight" rows={2} maxLength={50} required placeholder="一句话说明：它做了什么新的、为什么重要" /></label>
 
         <div className="form-section-title"><span>05</span><div><b>关键图表（可选）</b><small>未上传时显示默认示意图；上传多张时可指定主图</small></div></div>
-        <label className="figure-drop"><input type="file" name="figures" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => chooseFigures(event.target.files)} /><span>＋ 添加关键图（可跳过）</span><small>JPG / PNG / WebP，最多 8 张，单张不超过 8 MB；不上传也可提交</small></label>
-        {figures.length > 0 && <div className="figure-picker"><div className="figure-picker-title"><b>选择详情页主图</b><span>不选择时默认第一张</span></div><div className="figure-options">{figures.map((item, index) => <label className={keyFigureIndex === index ? "selected" : ""} key={`${item.file.name}-${index}`}><input type="radio" name="keyFigureChoice" checked={keyFigureIndex === index} onChange={() => setKeyFigureIndex(index)} /><img src={item.url} alt={`关键图候选 ${index + 1}`} /><span><b>图 {index + 1}</b><small>{item.file.name}</small></span></label>)}</div></div>}
+        <label className={`figure-drop ${draggingFigures ? "dragging" : ""}`} tabIndex={0} onDragEnter={(event) => { event.preventDefault(); setDraggingFigures(true); }} onDragOver={(event) => { event.preventDefault(); setDraggingFigures(true); }} onDragLeave={() => setDraggingFigures(false)} onDrop={(event) => { event.preventDefault(); setDraggingFigures(false); addFigureFiles(Array.from(event.dataTransfer.files)); }}><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { addFigureFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /><span>＋ 点击、拖拽或 Ctrl+V 粘贴关键图</span><small>JPG / PNG / WebP，最多 8 张，单张不超过 8 MB；可在页面任意位置直接粘贴图片</small></label>
+        {figures.length > 0 && <div className="figure-picker"><div className="figure-picker-title"><b>已添加 {figures.length} 张 · 选择详情页主图</b><span>不选择时默认第一张</span></div><div className="figure-options">{figures.map((item, index) => <label className={keyFigureIndex === index ? "selected" : ""} key={`${item.file.name}-${index}`}><input type="radio" name="keyFigureChoice" checked={keyFigureIndex === index} onChange={() => setKeyFigureIndex(index)} /><img src={item.url} alt={`关键图候选 ${index + 1}`} /><span><b>图 {index + 1}</b><small>{item.file.name}</small></span><button type="button" onClick={(event) => { event.preventDefault(); removeFigure(index); }} aria-label={`删除图 ${index + 1}`}>×</button></label>)}</div></div>}
         <label className="field-label">关键图说明<textarea name="figureCaption" rows={2} placeholder="例如：图 3，器件结构及不同波长通道的实验响应" /></label>
 
         <div className="form-section-title"><span>06</span><div><b>投稿人</b><small>用于审核沟通，不在公开页面显示邮箱</small></div></div>

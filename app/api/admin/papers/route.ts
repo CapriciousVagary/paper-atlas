@@ -6,6 +6,8 @@ import { institutions, paperEdits, papers as storedPapers } from "../../../../db
 import { applyPaperOverrides, getClassifications, papers as curatedPapers, type AuthorDetail, type AuthorRole, type Classification, type Paper } from "../../../data";
 import { normalizeInstitution } from "../../../lib/institutions";
 
+type PaperOverride = Partial<Paper> & { _figureKeys?: string[]; _keyFigureKey?: string | null };
+
 function isAuthorized(request: Request) {
   const expected = (env as unknown as { ADMIN_REVIEW_KEY?: string }).ADMIN_REVIEW_KEY;
   const provided = request.headers.get("x-admin-key");
@@ -42,6 +44,7 @@ function storedToPaper(paper: typeof storedPapers.$inferSelect): Paper & { id: n
     figureType,
     accent: figureType === "ring" ? "#7458e8" : figureType === "modulator" ? "#14aeb6" : "#dc9130",
     sourceUrl: paper.sourceUrl,
+    figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
     createdAt: paper.createdAt,
     submitterName: paper.submitterName,
     submitterEmail: paper.submitterEmail,
@@ -115,8 +118,8 @@ export async function GET(request: Request) {
     getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).orderBy(desc(storedPapers.createdAt)).limit(500),
     getDb().select().from(paperEdits).limit(500),
   ]);
-  const overrides = Object.fromEntries(edits.map((edit) => [edit.slug, parseJson<Partial<Paper>>(edit.data, {})]));
-  const curated = applyPaperOverrides(curatedPapers, overrides).map((paper) => ({ ...paper, recordType: "curated" as const, classifications: getClassifications(paper), figureKeys: [], submitterName: "批量导入", submitterEmail: "" }));
+  const overrides = Object.fromEntries(edits.map((edit) => [edit.slug, parseJson<PaperOverride>(edit.data, {})]));
+  const curated = applyPaperOverrides(curatedPapers, overrides).map((paper) => ({ ...paper, recordType: "curated" as const, classifications: getClassifications(paper), figureKeys: overrides[paper.slug]?._figureKeys ?? [], submitterName: "批量导入", submitterEmail: "" }));
   return Response.json({ papers: [...curated, ...stored.map(storedToPaper)] });
 }
 
@@ -141,7 +144,9 @@ export async function PUT(request: Request) {
   if (!update.title || !update.category || !update.subcategory) return Response.json({ error: "标题、大类和小类不能为空" }, { status: 400 });
   if (payload.recordType === "curated") {
     if (!curatedPapers.some((paper) => paper.slug === payload.slug)) return Response.json({ error: "条目不存在" }, { status: 404 });
-    await getDb().insert(paperEdits).values({ slug: payload.slug, data: JSON.stringify(update) }).onConflictDoUpdate({ target: paperEdits.slug, set: { data: JSON.stringify(update), updatedAt: sql`CURRENT_TIMESTAMP` } });
+    const [existing] = await getDb().select().from(paperEdits).where(eq(paperEdits.slug, payload.slug)).limit(1);
+    const merged = { ...parseJson<Record<string, unknown>>(existing?.data, {}), ...update };
+    await getDb().insert(paperEdits).values({ slug: payload.slug, data: JSON.stringify(merged) }).onConflictDoUpdate({ target: paperEdits.slug, set: { data: JSON.stringify(merged), updatedAt: sql`CURRENT_TIMESTAMP` } });
   } else {
     const [updated] = await getDb().update(storedPapers).set({
       title: update.title,
