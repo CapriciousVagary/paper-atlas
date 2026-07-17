@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDatabase } from "../../../db/ensure";
 import { comments } from "../../../db/schema";
+import { editorName, recordPaperAudit, type AuditChange } from "../../lib/audit";
 
 export async function GET(request: Request) {
   try {
@@ -40,7 +41,13 @@ export async function PUT(request: Request) {
   const author = String(payload.author ?? "").trim().slice(0, 80);
   const content = String(payload.content ?? "").trim().slice(0, 2000);
   if (!Number.isInteger(id) || id < 1 || !author || !content) return Response.json({ error: "评论编号、姓名和内容不能为空" }, { status: 400 });
+  const [before] = await getDb().select().from(comments).where(eq(comments.id, id)).limit(1);
+  if (!before) return Response.json({ error: "评论不存在" }, { status: 404 });
   const [updated] = await getDb().update(comments).set({ author, content }).where(eq(comments.id, id)).returning();
+  const changes: AuditChange[] = [];
+  if (before.author !== author) changes.push({ field: "评论署名", before: before.author, after: author });
+  if (before.content !== content) changes.push({ field: "评论内容", before: before.content.slice(0, 240), after: content.slice(0, 240) });
+  if (changes.length) await recordPaperAudit(before.paperSlug, editorName(request), "修改评论", changes);
   return updated ? Response.json({ comment: updated }) : Response.json({ error: "评论不存在" }, { status: 404 });
 }
 
@@ -51,5 +58,6 @@ export async function DELETE(request: Request) {
   const id = Number(new URL(request.url).searchParams.get("id"));
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "评论编号无效" }, { status: 400 });
   const [deleted] = await getDb().delete(comments).where(eq(comments.id, id)).returning();
+  if (deleted) await recordPaperAudit(deleted.paperSlug, editorName(request), "删除评论", [{ field: "评论", before: `${deleted.author}：${deleted.content.slice(0, 240)}`, after: "已删除" }]);
   return deleted ? Response.json({ deleted: true }) : Response.json({ error: "评论不存在" }, { status: 404 });
 }

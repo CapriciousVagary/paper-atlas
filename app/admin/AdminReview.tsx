@@ -12,7 +12,14 @@ type AdminPaper = Paper & {
   figureKeys: string[];
 };
 type AdminComment = { id: number; author: string; content: string; createdAt: string };
+type AuditLog = { id: number; actor: string; action: string; changes: Array<{ field: string; before?: string; after?: string }>; createdAt: string };
 type MediaDraft = { file: File; url: string };
+
+function displayAuditTime(value: string) {
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value;
+  const date = new Date(normalized);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString("zh-CN", { hour12: false }) : value;
+}
 
 function authorLines(paper: AdminPaper) {
   return (paper.authorDetails ?? []).map((author) => [author.role, author.name, author.institution ?? "", (author.aliases ?? []).join(","), author.note ?? ""].join(" | ")).join("\n");
@@ -32,6 +39,7 @@ function parseAuthors(value: string): AuthorDetail[] {
 
 export default function AdminReview() {
   const [key, setKey] = useState("");
+  const [editorName, setEditorName] = useState("");
   const [papers, setPapers] = useState<AdminPaper[]>([]);
   const [status, setStatus] = useState("请输入管理员审批码。");
   const [authorized, setAuthorized] = useState(false);
@@ -41,6 +49,7 @@ export default function AdminReview() {
   const [authorsText, setAuthorsText] = useState("");
   const [classificationsText, setClassificationsText] = useState("");
   const [comments, setComments] = useState<AdminComment[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [commentStatus, setCommentStatus] = useState("");
   const [media, setMedia] = useState<MediaDraft[]>([]);
   const mediaRef = useRef<MediaDraft[]>([]);
@@ -62,8 +71,12 @@ export default function AdminReview() {
   useEffect(() => () => mediaRef.current.forEach((item) => URL.revokeObjectURL(item.url)), []);
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("literature-admin-key");
-    if (saved) { const restore = window.setTimeout(() => { setKey(saved); void load(saved, "pending"); }, 0); return () => window.clearTimeout(restore); }
+    const restore = window.setTimeout(() => {
+      const saved = sessionStorage.getItem("literature-admin-key");
+      setEditorName(sessionStorage.getItem("literature-editor-name") ?? "");
+      if (saved) { setKey(saved); void load(saved, "pending"); }
+    }, 0);
+    return () => window.clearTimeout(restore);
     // `load` intentionally uses the latest state after the one-time session restore.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -94,23 +107,27 @@ export default function AdminReview() {
 
   function closeEditor() {
     media.forEach((item) => URL.revokeObjectURL(item.url));
-    setEditing(null); setMedia([]); setComments([]); setCommentStatus(""); setClearExistingImage(false); setKeyMediaIndex(0);
+    setEditing(null); setMedia([]); setComments([]); setAuditLogs([]); setCommentStatus(""); setClearExistingImage(false); setKeyMediaIndex(0);
   }
 
   async function login(event: FormEvent) { event.preventDefault(); await load(); }
 
   async function review(id: number | undefined, action: "approve" | "reject") {
     if (!id) return;
-    const response = await fetch("/api/admin/papers", { method: "PATCH", headers: { "Content-Type": "application/json", "x-admin-key": key }, body: JSON.stringify({ id, action }) });
+    const response = await fetch("/api/admin/papers", { method: "PATCH", headers: { "Content-Type": "application/json", "x-admin-key": key, "x-editor-name": editorName }, body: JSON.stringify({ id, action }) });
     if (response.ok) { setPapers((current) => current.filter((paper) => paper.id !== id)); setStatus(action === "approve" ? "已批准；论文和新单位现已进入公开文献库。" : "已退回该投稿。"); }
     else setStatus("操作失败，请刷新后重试。");
   }
 
   async function beginEdit(paper: AdminPaper) {
     setEditing(structuredClone(paper)); setAuthorsText(authorLines(paper)); setClassificationsText(classificationLines(paper)); setMedia([]); setClearExistingImage(false); setKeyMediaIndex(0); setCommentStatus("正在读取评论…");
-    const response = await fetch(`/api/comments?paperSlug=${encodeURIComponent(paper.slug)}`);
-    const data = response.ok ? await response.json() : { comments: [] };
+    const [response, auditResponse] = await Promise.all([
+      fetch(`/api/comments?paperSlug=${encodeURIComponent(paper.slug)}`, { cache: "no-store" }),
+      fetch(`/api/admin/audit-logs?slug=${encodeURIComponent(paper.slug)}`, { headers: { "x-admin-key": key }, cache: "no-store" }),
+    ]);
+    const [data, auditData] = await Promise.all([response.ok ? response.json() : { comments: [] }, auditResponse.ok ? auditResponse.json() : { logs: [] }]);
     setComments(data.comments ?? []); setCommentStatus(data.comments?.length ? `共 ${data.comments.length} 条评论或注释` : "暂无评论或注释");
+    setAuditLogs(auditData.logs ?? []);
     window.setTimeout(() => document.querySelector(".paper-edit-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
@@ -121,7 +138,7 @@ export default function AdminReview() {
     const primary = classifications[0] ?? { category: editing.category, subcategory: editing.subcategory };
     const paper = { ...editing, category: primary.category, subcategory: primary.subcategory, classifications, authorDetails: parseAuthors(authorsText), keywords: editing.keywords.map((item) => item.trim()).filter(Boolean).slice(0, 6) };
     setStatus("正在保存论文信息…");
-    const response = await fetch("/api/admin/papers", { method: "PUT", headers: { "Content-Type": "application/json", "x-admin-key": key }, body: JSON.stringify({ slug: editing.slug, recordType: editing.recordType, paper }) });
+    const response = await fetch("/api/admin/papers", { method: "PUT", headers: { "Content-Type": "application/json", "x-admin-key": key, "x-editor-name": editorName }, body: JSON.stringify({ slug: editing.slug, recordType: editing.recordType, paper }) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setStatus(data.error ?? "保存失败，请重试。"); return; }
     if (media.length || clearExistingImage) {
@@ -143,7 +160,7 @@ export default function AdminReview() {
       }
       const mediaResponse = await fetch("/api/admin/papers/media", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-key": key },
+        headers: { "Content-Type": "application/json", "x-admin-key": key, "x-editor-name": editorName },
         body: JSON.stringify({ slug: editing.slug, recordType: editing.recordType, clear: clearExistingImage, keyFigureIndex: keyMediaIndex, figureCaption: editing.figureCaption, figureKeys }),
       });
       const mediaData = await mediaResponse.json().catch(() => ({}));
@@ -154,7 +171,7 @@ export default function AdminReview() {
 
   async function saveComment(comment: AdminComment) {
     setCommentStatus("正在保存评论…");
-    const response = await fetch("/api/comments", { method: "PUT", headers: { "Content-Type": "application/json", "x-admin-key": key }, body: JSON.stringify(comment) });
+    const response = await fetch("/api/comments", { method: "PUT", headers: { "Content-Type": "application/json", "x-admin-key": key, "x-editor-name": editorName }, body: JSON.stringify(comment) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setCommentStatus(data.error ?? "评论保存失败"); return; }
     setComments((current) => current.map((item) => item.id === comment.id ? data.comment : item)); setCommentStatus("评论已更新");
@@ -162,7 +179,7 @@ export default function AdminReview() {
 
   async function deleteComment(comment: AdminComment) {
     if (!window.confirm(`确认删除 ${comment.author} 的这条评论？`)) return;
-    const response = await fetch(`/api/comments?id=${comment.id}`, { method: "DELETE", headers: { "x-admin-key": key } });
+    const response = await fetch(`/api/comments?id=${comment.id}`, { method: "DELETE", headers: { "x-admin-key": key, "x-editor-name": editorName } });
     if (response.ok) { setComments((current) => current.filter((item) => item.id !== comment.id)); setCommentStatus("评论已删除"); }
     else setCommentStatus("评论删除失败");
   }
@@ -175,10 +192,12 @@ export default function AdminReview() {
   return <div className="admin-shell">
     <div className="admin-heading"><div><span className="section-kicker">EDITOR WORKSPACE</span><h1>{tab === "pending" ? "待审核投稿" : "已收录论文"}</h1><p>{status}</p></div><button onClick={() => load()}>刷新列表</button></div>
     <div className="admin-tabs"><button className={tab === "pending" ? "active" : ""} onClick={() => load(key, "pending")}>待审核投稿</button><button className={tab === "approved" ? "active" : ""} onClick={() => load(key, "approved")}>编辑已收录论文</button></div>
+    <label className="editor-identity"><span>本次修改者（可选）</span><input value={editorName} onChange={(event) => { setEditorName(event.target.value); sessionStorage.setItem("literature-editor-name", event.target.value); }} placeholder="例如：张三；留空则记录为未署名审核者" /><small>批准、退回及后续修改都会自动写入审批日志。</small></label>
     <div className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、DOI、期刊、作者、分类或标签" /><b>{visiblePapers.length} / {papers.length}</b></div>
 
     {editing && <form className="paper-edit-form" onSubmit={saveEdit}><div className="paper-edit-heading"><div><span className="section-kicker">EDIT RECORD · {editing.recordType === "curated" ? "批量导入" : "公开投稿"}</span><h2>修订论文与讨论</h2><p>{editing.slug}</p></div><button type="button" onClick={closeEditor}>关闭</button></div>
       <div className="editor-summary"><div><span>当前分类</span><b>{getClassifications(editing).map((item) => `${item.category} / ${item.subcategory}`).join("；")}</b></div><div><span>图片</span><b>{editing.figureKeys.length ? `${editing.figureKeys.length} 张` : "默认示意图"}</b></div><div><span>讨论</span><b>{comments.length} 条</b></div></div>
+      <section className="audit-history"><div className="editor-section-heading"><div><span>REVIEW LOG</span><h3>审批与修改记录</h3></div><small>最近 {auditLogs.length} 条</small></div>{auditLogs.length ? <div className="audit-list">{auditLogs.map((log) => <article key={log.id}><div className="audit-meta"><b>{log.action}</b><span>{log.actor || "未署名审核者"}</span><time>{displayAuditTime(log.createdAt)}</time></div>{log.changes.length ? <ul>{log.changes.map((change, index) => <li key={`${log.id}-${change.field}-${index}`}><b>{change.field}</b><span>{change.before || "未填写"}</span><i>→</i><span>{change.after || "未填写"}</span></li>)}</ul> : <p>已记录该操作。</p>}</article>)}</div> : <p className="editor-empty">暂无审批日志；本功能启用前的历史操作不会回填。</p>}</section>
       <label>英文标题<input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} required /></label>
       <label>中文标题<input value={editing.titleZh ?? ""} onChange={(event) => setEditing({ ...editing, titleZh: event.target.value })} /></label>
       <div className="edit-grid"><label>期刊<input value={editing.journal} onChange={(event) => setEditing({ ...editing, journal: event.target.value })} /></label><label>发表年月<input value={editing.published} onChange={(event) => setEditing({ ...editing, published: event.target.value })} /></label></div>

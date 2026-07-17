@@ -56,3 +56,12 @@ export const paperEdits = sqliteTable("paper_edits", {
   data: text("data").notNull(),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const paperAuditLogs = sqliteTable("paper_audit_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  paperSlug: text("paper_slug").notNull(),
+  actor: text("actor").notNull().default(""),
+  action: text("action").notNull(),
+  changes: text("changes").notNull().default("[]"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("paper_audit_logs_slug_idx").on(table.paperSlug)]);

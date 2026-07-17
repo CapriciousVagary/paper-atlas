@@ -16,7 +16,14 @@ export default function BrowseClient({ initialQuery }: { initialQuery: Query }) 
   const [uploaded, setUploaded] = useState<Paper[]>([]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Paper>>>({});
   const [currentTime] = useState(() => Date.now());
-  useEffect(() => { fetch("/api/papers").then((response) => response.ok ? response.json() : { papers: [] }).then((data) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    const loadPapers = () => fetch(`/api/papers?refresh=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : { papers: [] }).then((data) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); }).catch(() => undefined);
+    void loadPapers();
+    const refresh = () => { if (document.visibilityState === "visible") void loadPapers(); };
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh); document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, []);
   const allPapers = useMemo(() => [...applyPaperOverrides(papers, overrides), ...uploaded], [uploaded, overrides]);
   const category = initialQuery.category ?? "";
   const subcategory = initialQuery.subcategory ?? "";

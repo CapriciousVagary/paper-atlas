@@ -17,11 +17,17 @@ export default function Dashboard({ initialQuery = "", initialCategory = "全部
   const latestSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    fetch("/api/papers")
+    const loadPapers = () => fetch(`/api/papers?refresh=${Date.now()}`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : { papers: [] }))
       .then((data) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); })
       .catch(() => undefined);
+    void loadPapers();
+    const refresh = () => { if (document.visibilityState === "visible") void loadPapers(); };
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     if (initialCategory !== "全部方向") window.setTimeout(() => latestSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [initialCategory]);
 
   const allPapers = useMemo(() => [...applyPaperOverrides(papers, overrides), ...uploaded] as Paper[], [uploaded, overrides]);

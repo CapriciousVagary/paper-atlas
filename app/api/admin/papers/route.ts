@@ -4,6 +4,7 @@ import { getDb } from "../../../../db";
 import { ensureDatabase } from "../../../../db/ensure";
 import { institutions, paperEdits, papers as storedPapers } from "../../../../db/schema";
 import { applyPaperOverrides, getClassifications, papers as curatedPapers, type AuthorDetail, type AuthorRole, type Classification, type Paper } from "../../../data";
+import { auditDiff, editorName, recordPaperAudit } from "../../../lib/audit";
 import { normalizeInstitution } from "../../../lib/institutions";
 
 type PaperOverride = Partial<Paper> & { _figureKeys?: string[]; _keyFigureKey?: string | null };
@@ -15,6 +16,11 @@ function isAuthorized(request: Request) {
 }
 
 const authorRoles = new Set<AuthorRole>(["first", "first_corresponding", "cofirst", "corresponding", "notable", "other"]);
+const auditLabels = {
+  title: "英文标题", titleZh: "中文标题", doi: "DOI", sourceUrl: "来源链接", category: "大类", subcategory: "小类",
+  classifications: "全部分类", journal: "期刊", published: "发表年月", authorDetails: "作者与单位", abstractZh: "中文摘要",
+  insight: "一句话要点", keywords: "标签", figureCaption: "关键图说明",
+};
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   try { return JSON.parse(value || "") as T; } catch { return fallback; }
@@ -99,6 +105,10 @@ function cleanUpdate(value: unknown): Partial<Paper> {
   };
 }
 
+function auditShape(paper: Partial<Paper>): Record<string, unknown> {
+  return Object.fromEntries(Object.keys(auditLabels).map((key) => [key, paper[key as keyof Paper] ?? ""]));
+}
+
 async function registerInstitutions(authorDetails: AuthorDetail[]) {
   const names = [...new Set(authorDetails.map((author) => author.institution?.trim()).filter((name): name is string => Boolean(name)))];
   for (const fullName of names) {
@@ -128,10 +138,12 @@ export async function PATCH(request: Request) {
   await ensureDatabase();
   const payload = await request.json() as { id?: number; action?: "approve" | "reject" };
   if (!payload.id || !["approve", "reject"].includes(payload.action ?? "")) return Response.json({ error: "无效操作" }, { status: 400 });
+  const [before] = await getDb().select({ slug: storedPapers.slug, status: storedPapers.status }).from(storedPapers).where(eq(storedPapers.id, payload.id)).limit(1);
+  if (!before) return Response.json({ error: "投稿不存在" }, { status: 404 });
   const status = payload.action === "approve" ? "approved" : "rejected";
   const [paper] = await getDb().update(storedPapers).set({ status, reviewedAt: sql`CURRENT_TIMESTAMP` }).where(eq(storedPapers.id, payload.id)).returning();
-  if (!paper) return Response.json({ error: "投稿不存在" }, { status: 404 });
   if (status === "approved") await registerInstitutions(parseJson<AuthorDetail[]>(paper.authorDetails, []));
+  await recordPaperAudit(paper.slug, editorName(request), status === "approved" ? "批准公开" : "退回投稿", [{ field: "审批状态", before: before.status, after: status }]);
   return Response.json({ paper });
 }
 
@@ -142,12 +154,20 @@ export async function PUT(request: Request) {
   if (!payload.slug || !payload.recordType) return Response.json({ error: "缺少条目标识" }, { status: 400 });
   const update = cleanUpdate(payload.paper);
   if (!update.title || !update.category || !update.subcategory) return Response.json({ error: "标题、大类和小类不能为空" }, { status: 400 });
+  let changes = [] as ReturnType<typeof auditDiff>;
   if (payload.recordType === "curated") {
-    if (!curatedPapers.some((paper) => paper.slug === payload.slug)) return Response.json({ error: "条目不存在" }, { status: 404 });
+    const base = curatedPapers.find((paper) => paper.slug === payload.slug);
+    if (!base) return Response.json({ error: "条目不存在" }, { status: 404 });
     const [existing] = await getDb().select().from(paperEdits).where(eq(paperEdits.slug, payload.slug)).limit(1);
-    const merged = { ...parseJson<Record<string, unknown>>(existing?.data, {}), ...update };
+    const previousOverride = parseJson<Record<string, unknown>>(existing?.data, {});
+    const previous = { ...base, ...previousOverride } as Paper;
+    const merged = { ...previousOverride, ...update };
+    changes = auditDiff(auditShape(previous), auditShape({ ...previous, ...update }), auditLabels);
     await getDb().insert(paperEdits).values({ slug: payload.slug, data: JSON.stringify(merged) }).onConflictDoUpdate({ target: paperEdits.slug, set: { data: JSON.stringify(merged), updatedAt: sql`CURRENT_TIMESTAMP` } });
   } else {
+    const [previousRow] = await getDb().select().from(storedPapers).where(eq(storedPapers.slug, payload.slug)).limit(1);
+    if (!previousRow) return Response.json({ error: "条目不存在" }, { status: 404 });
+    changes = auditDiff(auditShape(storedToPaper(previousRow)), auditShape(update), auditLabels);
     const [updated] = await getDb().update(storedPapers).set({
       title: update.title,
       titleZh: update.titleZh ?? "",
@@ -169,5 +189,6 @@ export async function PUT(request: Request) {
     if (!updated) return Response.json({ error: "条目不存在" }, { status: 404 });
   }
   await registerInstitutions(update.authorDetails ?? []);
+  if (changes.length) await recordPaperAudit(payload.slug, editorName(request), "修改论文信息", changes);
   return Response.json({ ok: true, paper: update });
 }

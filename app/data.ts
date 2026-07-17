@@ -108,7 +108,8 @@ export function applyPaperOverrides(base: Paper[], overrides: Record<string, Par
 }
 
 export function paperAddedAt(paper: Pick<Paper, "createdAt" | "addedAt">) {
-  return paper.createdAt || paper.addedAt || "2026-07-15T00:00:00+08:00";
+  const value = paper.addedAt || paper.createdAt || "2026-07-15T00:00:00+08:00";
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value;
 }
 
 export const findPaper = (slug: string) => papers.find((paper) => paper.slug === slug);

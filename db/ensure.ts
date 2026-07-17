@@ -56,11 +56,20 @@ export function ensureDatabase() {
         data text NOT NULL,
         updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
       )`),
+      d1.prepare(`CREATE TABLE IF NOT EXISTS paper_audit_logs (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        paper_slug text NOT NULL,
+        actor text DEFAULT '' NOT NULL,
+        action text NOT NULL,
+        changes text DEFAULT '[]' NOT NULL,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_category_idx ON papers (category)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_status_idx ON papers (status)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_created_at_idx ON papers (created_at)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS comments_paper_slug_idx ON comments (paper_slug)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS institutions_normalized_name_idx ON institutions (normalized_name)"),
+      d1.prepare("CREATE INDEX IF NOT EXISTS paper_audit_logs_slug_idx ON paper_audit_logs (paper_slug)"),
     ]);
     const paperColumns = await d1.prepare("PRAGMA table_info(papers)").all<{ name: string }>();
     if (!paperColumns.results.some((column) => column.name === "author_details")) {

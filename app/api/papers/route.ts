@@ -80,6 +80,7 @@ export async function GET() {
         figureCaption: paper.figureCaption,
         sourceUrl: paper.sourceUrl || undefined,
         createdAt: paper.createdAt,
+        addedAt: paper.reviewedAt || paper.createdAt,
         figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
         pdfUrl: paper.fileKey ? `/api/papers/${encodeURIComponent(paper.slug)}/pdf` : undefined,
       })),
@@ -88,9 +89,9 @@ export async function GET() {
         void _ignoredKeys; void _ignoredKey;
         return [edit.slug, publicData];
       })),
-    });
+    }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } });
   } catch {
-    return Response.json({ papers: [] });
+    return Response.json({ papers: [] }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } });
   }
 }
 
