@@ -8,6 +8,7 @@ import { FigurePreview } from "../../components/FigurePreview";
 import { KeywordEditor } from "../../components/KeywordEditor";
 import { SiteHeader } from "../../components/SiteHeader";
 import { authorRoleLabels, findPaper, getAuthorDetails, getClassifications, papers, type Paper } from "../../data";
+import { paperSourceHref } from "../../lib/paper-source";
 
 export function generateStaticParams() {
   return papers.map((paper) => ({ slug: paper.slug }));
@@ -72,6 +73,7 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
   const defaultAuthors = keyAuthors.length ? keyAuthors : allAuthors.slice(0, 1);
   const figureUrls = paper.figureImageUrls?.length ? paper.figureImageUrls : paper.figureImageUrl ? [paper.figureImageUrl] : [];
   const figureCaptions = paper.figureCaptions?.length ? paper.figureCaptions : paper.figureCaption ? [paper.figureCaption] : [];
+  const sourceHref = paperSourceHref(paper.sourceUrl, paper.doi);
 
   return <main>
     <SiteHeader />
@@ -98,7 +100,7 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
         <aside className="detail-sidebar">
           <section><span className="section-kicker">QUICK RECALL</span><h3>回顾卡</h3><dl><div><dt>研究方向</dt><dd>{classifications.map((item) => `${item.category} · ${item.subcategory}`).join("；")}</dd></div><div><dt>核心方法</dt><dd>{paper.keywords.slice(0, 3).join(" · ") || "待补充"}</dd></div><div><dt>作者信息</dt><dd>{defaultAuthors.map((author) => `${authorRoleLabels[author.role]}：${author.name}`).join("；") || "待补充"}</dd></div></dl></section>
           <section><span className="section-kicker">KEYWORDS</span>{paper.verificationStatus || paper.sample ? <div className="keyword-cloud">{paper.keywords.slice(0, 12).map((keyword) => <Link href={`/browse?tag=${encodeURIComponent(keyword)}`} key={keyword}>{keyword}</Link>)}</div> : <KeywordEditor paperSlug={paper.slug} initialKeywords={paper.keywords.slice(0, 12)} />}</section>
-          <section className="source-box"><span className="section-kicker">SOURCE</span><p>{paper.doi ? `DOI：${paper.doi}` : paper.pdfUrl || paper.sourceUrl ? "可从下方打开投稿者提供的论文来源。" : "暂未提供论文来源。"}</p>{paper.pdfUrl ? <a href={paper.pdfUrl} target="_blank" rel="noreferrer">打开上传 PDF →</a> : paper.sourceUrl ? <a href={paper.sourceUrl} target="_blank" rel="noreferrer">打开论文来源 →</a> : <button disabled>暂无原文</button>}</section>
+          <section className="source-box"><span className="section-kicker">SOURCE</span><p>{paper.doi ? `DOI：${paper.doi}` : sourceHref || paper.pdfUrl ? "可从下方打开论文官网或投稿者上传的 PDF。" : "暂未提供论文来源。"}</p>{sourceHref && <a href={sourceHref} target="_blank" rel="noopener noreferrer">打开论文官网 →</a>}{paper.pdfUrl && <a className="secondary" href={paper.pdfUrl} target="_blank" rel="noopener noreferrer">打开上传 PDF →</a>}{!sourceHref && !paper.pdfUrl && <button disabled>暂无原文</button>}</section>
         </aside>
       </div>
     </div>

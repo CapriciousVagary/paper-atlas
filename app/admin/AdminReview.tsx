@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { authorRoleLabels, getClassifications, type AuthorDetail, type AuthorRole, type Classification, type Paper } from "../data";
 import { uploadFileInChunks } from "../lib/chunk-upload";
+import { paperSourceHref } from "../lib/paper-source";
 import AdminMetadata from "./AdminMetadata";
 
 type AdminPaper = Paper & {
@@ -230,7 +231,7 @@ export default function AdminReview() {
 
     {tab !== "metadata" && <div className="review-list">{visiblePapers.map((paper) => <article className="review-card detailed" key={`${paper.recordType}-${paper.slug}`}>
       <div className="review-meta"><span>{paper.category}</span><i />{paper.subcategory}<i />{paper.journal} · {paper.published}<em>{paper.recordType === "curated" ? "批量导入" : paper.submitterName}</em></div><h2>{paper.title}</h2>{paper.titleZh && <p className="review-title-zh">{paper.titleZh}</p>}
-      <div className="review-record-grid"><div><span>DOI / 来源</span><b>{paper.doi || "无 DOI"}</b>{paper.sourceUrl && <a href={paper.sourceUrl} target="_blank" rel="noreferrer">打开来源 ↗</a>}</div><div><span>所属分类</span><b>{getClassifications(paper).map((item) => `${item.category} / ${item.subcategory}`).join("；")}</b></div><div><span>图片</span><b>{paper.figureKeys.length ? `${paper.figureKeys.length} 张已上传` : "默认示意图"}</b></div></div>
+      <div className="review-record-grid"><div><span>DOI / 来源</span><b>{paper.doi || "无 DOI"}</b>{paperSourceHref(paper.sourceUrl, paper.doi) && <a href={paperSourceHref(paper.sourceUrl, paper.doi)} target="_blank" rel="noopener noreferrer">打开来源 ↗</a>}</div><div><span>所属分类</span><b>{getClassifications(paper).map((item) => `${item.category} / ${item.subcategory}`).join("；")}</b></div><div><span>图片</span><b>{paper.figureKeys.length ? `${paper.figureKeys.length} 张已上传` : "默认示意图"}</b></div></div>
       <div className="review-author-details">{paper.authorDetails?.length ? paper.authorDetails.filter((author) => author.role !== "other").map((author) => <span key={`${author.role}-${author.name}`}><b>{authorRoleLabels[author.role]}</b>{author.name}{author.institution && <small>{author.institution}</small>}</span>) : <p className="review-authors">作者待补充</p>}</div>
       <div className="review-summary"><b>中文摘要</b><p>{paper.abstractZh || "未填写"}</p></div><div className="review-insight"><b>几句话要点</b><span>{paper.insight || "未填写"}</span></div><div className="review-tags">{paper.keywords.map((tag) => <span key={tag}>#{tag}</span>)}</div>
       <div className="review-foot"><div><b>{paper.recordType === "curated" ? "批量导入条目" : `投稿人：${paper.submitterName}`}</b><small>{paper.submitterEmail || "未留邮箱"} · {paper.createdAt || paper.addedAt || "收录时间待补充"}</small></div><div>{tab === "pending" && <><button className="reject" onClick={() => review(paper.id, "reject")}>退回</button><button className="approve" onClick={() => review(paper.id, "approve")}>批准公开</button></>}<button className="edit-record" onClick={() => beginEdit(paper)}>{tab === "pending" ? "审核前编辑" : "编辑论文、图片与评论"}</button></div></div>
