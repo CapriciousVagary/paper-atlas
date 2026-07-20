@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const papers = sqliteTable("papers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -21,6 +21,7 @@ export const papers = sqliteTable("papers", {
   sourceUrl: text("source_url").notNull().default(""),
   fileKey: text("file_key"),
   figureKeys: text("figure_keys").notNull().default("[]"),
+  figureCaptions: text("figure_captions").notNull().default("[]"),
   keyFigureKey: text("key_figure_key"),
   figureCaption: text("figure_caption").notNull().default(""),
   submitterName: text("submitter_name").notNull().default("匿名投稿者"),
@@ -65,3 +66,20 @@ export const paperAuditLogs = sqliteTable("paper_audit_logs", {
   changes: text("changes").notNull().default("[]"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("paper_audit_logs_slug_idx").on(table.paperSlug)]);
+
+export const journals = sqliteTable("journals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  fullName: text("full_name").notNull().unique(),
+  abbreviation: text("abbreviation").notNull().default(""),
+  aliases: text("aliases").notNull().default("[]"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const taxonomyItems = sqliteTable("taxonomy_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind").notNull(),
+  name: text("name").notNull(),
+  parent: text("parent").notNull().default(""),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("taxonomy_items_identity_idx").on(table.kind, table.parent, table.name)]);

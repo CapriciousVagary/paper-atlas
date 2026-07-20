@@ -42,9 +42,11 @@ async function loadPaper(slug: string): Promise<Paper | undefined> {
       insight: stored.insight || "创新点待组内成员确认。",
       keywords: JSON.parse(stored.tags || "[]"),
       figureCaption: stored.figureCaption || "关键图表待上传者补充图注。",
+      figureCaptions: JSON.parse(stored.figureCaptions || "[]"),
       figureType,
       accent: figureType === "ring" ? "#7458e8" : figureType === "modulator" ? "#14aeb6" : "#dc9130",
       figureImageUrl: stored.keyFigureKey ? `/api/papers/${encodeURIComponent(stored.slug)}/figure` : undefined,
+      figureImageUrls: (JSON.parse(stored.figureKeys || "[]") as string[]).map((_, index) => `/api/papers/${encodeURIComponent(stored.slug)}/figure?index=${index}`),
       pdfUrl: stored.fileKey ? `/api/papers/${encodeURIComponent(stored.slug)}/pdf` : undefined,
       sourceUrl: stored.sourceUrl || undefined,
       createdAt: stored.createdAt,
@@ -68,6 +70,8 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
   const classifications = getClassifications(paper);
   const keyAuthors = allAuthors.filter((author) => author.role !== "other");
   const defaultAuthors = keyAuthors.length ? keyAuthors : allAuthors.slice(0, 1);
+  const figureUrls = paper.figureImageUrls?.length ? paper.figureImageUrls : paper.figureImageUrl ? [paper.figureImageUrl] : [];
+  const figureCaptions = paper.figureCaptions?.length ? paper.figureCaptions : paper.figureCaption ? [paper.figureCaption] : [];
 
   return <main>
     <SiteHeader />
@@ -87,13 +91,13 @@ export default async function PaperPage({ params }: { params: Promise<{ slug: st
       <div className="detail-grid">
         <article className="detail-content">
           <section><div className="content-heading"><span>01</span><h2>中文摘要</h2></div><p className="abstract-text">{paper.abstractZh}</p></section>
-          <section className="key-insight"><div className="content-heading"><span>02</span><h2>50字创新点</h2></div><blockquote>{paper.insight}</blockquote><small>{paper.insight.length} / 50 字</small></section>
-          <section><div className="content-heading"><span>03</span><h2>关键图表</h2></div><div className="large-figure">{paper.figureImageUrl ? <img className="uploaded-key-figure" src={paper.figureImageUrl} alt={paper.figureCaption || `关键图：${paper.title}`} /> : <FigurePreview type={paper.figureType} />}</div><p className="figure-caption"><b>主图 · </b>{paper.figureCaption}</p></section>
+          <section className="key-insight"><div className="content-heading"><span>02</span><h2>几句话要点</h2></div><blockquote>{paper.insight}</blockquote></section>
+          <section><div className="content-heading"><span>03</span><h2>关键图表</h2></div>{figureUrls.length ? <div className="detail-figure-gallery">{figureUrls.map((url, index) => <figure key={url}><div className="large-figure"><img className="uploaded-key-figure" src={url} alt={figureCaptions[index] || `关键图 ${index + 1}：${paper.title}`} /></div><figcaption className="figure-caption"><b>图 {index + 1} · </b>{figureCaptions[index] || "图注待补充"}</figcaption></figure>)}</div> : <><div className="large-figure"><FigurePreview type={paper.figureType} /></div><p className="figure-caption">{paper.figureCaption}</p></> }</section>
           <Comments paperSlug={paper.slug} />
         </article>
         <aside className="detail-sidebar">
           <section><span className="section-kicker">QUICK RECALL</span><h3>回顾卡</h3><dl><div><dt>研究方向</dt><dd>{classifications.map((item) => `${item.category} · ${item.subcategory}`).join("；")}</dd></div><div><dt>核心方法</dt><dd>{paper.keywords.slice(0, 3).join(" · ") || "待补充"}</dd></div><div><dt>作者信息</dt><dd>{defaultAuthors.map((author) => `${authorRoleLabels[author.role]}：${author.name}`).join("；") || "待补充"}</dd></div></dl></section>
-          <section><span className="section-kicker">KEYWORDS</span>{paper.verificationStatus || paper.sample ? <><div className="keyword-cloud">{paper.keywords.slice(0, 6).map((keyword) => <Link href={`/browse?tag=${encodeURIComponent(keyword)}`} key={keyword}>{keyword}</Link>)}</div><small className="tag-status">当前仅显示最核心的 6 个标签；如需调整可在评论中注明。</small></> : <KeywordEditor paperSlug={paper.slug} initialKeywords={paper.keywords.slice(0, 6)} />}</section>
+          <section><span className="section-kicker">KEYWORDS</span>{paper.verificationStatus || paper.sample ? <div className="keyword-cloud">{paper.keywords.slice(0, 12).map((keyword) => <Link href={`/browse?tag=${encodeURIComponent(keyword)}`} key={keyword}>{keyword}</Link>)}</div> : <KeywordEditor paperSlug={paper.slug} initialKeywords={paper.keywords.slice(0, 12)} />}</section>
           <section className="source-box"><span className="section-kicker">SOURCE</span><p>{paper.doi ? `DOI：${paper.doi}` : paper.pdfUrl || paper.sourceUrl ? "可从下方打开投稿者提供的论文来源。" : "暂未提供论文来源。"}</p>{paper.pdfUrl ? <a href={paper.pdfUrl} target="_blank" rel="noreferrer">打开上传 PDF →</a> : paper.sourceUrl ? <a href={paper.sourceUrl} target="_blank" rel="noreferrer">打开论文来源 →</a> : <button disabled>暂无原文</button>}</section>
         </aside>
       </div>

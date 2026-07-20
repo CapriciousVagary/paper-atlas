@@ -3,7 +3,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { ensureDatabase } from "../../../../db/ensure";
 import { institutions, paperEdits, papers as storedPapers } from "../../../../db/schema";
-import { applyPaperOverrides, getClassifications, papers as curatedPapers, type AuthorDetail, type AuthorRole, type Classification, type Paper } from "../../../data";
+import { applyPaperOverrides, getClassifications, paperAddedAt, papers as curatedPapers, type AuthorDetail, type AuthorRole, type Classification, type Paper } from "../../../data";
 import { auditDiff, editorName, recordPaperAudit } from "../../../lib/audit";
 import { normalizeInstitution } from "../../../lib/institutions";
 
@@ -19,7 +19,7 @@ const authorRoles = new Set<AuthorRole>(["first", "first_corresponding", "cofirs
 const auditLabels = {
   title: "英文标题", titleZh: "中文标题", doi: "DOI", sourceUrl: "来源链接", category: "大类", subcategory: "小类",
   classifications: "全部分类", journal: "期刊", published: "发表年月", authorDetails: "作者与单位", abstractZh: "中文摘要",
-  insight: "一句话要点", keywords: "标签", figureCaption: "关键图说明",
+  insight: "几句话要点", keywords: "标签", figureCaption: "主图说明",
 };
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -28,6 +28,7 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 
 function storedToPaper(paper: typeof storedPapers.$inferSelect): Paper & { id: number; recordType: "stored"; submitterName: string; submitterEmail: string; figureKeys: string[] } {
   const figureType: Paper["figureType"] = paper.category === "光计算" ? "ring" : paper.category.includes("铌酸锂") ? "modulator" : "laser";
+  const figureKeys = parseJson<string[]>(paper.figureKeys, []);
   return {
     id: paper.id,
     recordType: "stored",
@@ -47,14 +48,18 @@ function storedToPaper(paper: typeof storedPapers.$inferSelect): Paper & { id: n
     insight: paper.insight,
     keywords: parseJson(paper.tags, []),
     figureCaption: paper.figureCaption,
+    figureCaptions: parseJson(paper.figureCaptions, []),
     figureType,
     accent: figureType === "ring" ? "#7458e8" : figureType === "modulator" ? "#14aeb6" : "#dc9130",
     sourceUrl: paper.sourceUrl,
     figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
+    figureImageUrls: figureKeys.map((_, index) => `/api/papers/${encodeURIComponent(paper.slug)}/figure?index=${index}`),
+    keyFigureIndex: Math.max(0, figureKeys.indexOf(paper.keyFigureKey || "")),
     createdAt: paper.createdAt,
+    addedAt: paper.reviewedAt || paper.createdAt,
     submitterName: paper.submitterName,
     submitterEmail: paper.submitterEmail,
-    figureKeys: parseJson(paper.figureKeys, []),
+    figureKeys,
   };
 }
 
@@ -99,8 +104,8 @@ function cleanUpdate(value: unknown): Partial<Paper> {
     authors: authorDetails.map((author) => author.name),
     institutions: [...new Set(authorDetails.map((author) => author.institution).filter((item): item is string => Boolean(item)))],
     abstractZh: String(payload.abstractZh ?? "").trim().slice(0, 12000),
-    insight: String(payload.insight ?? "").trim().slice(0, 50),
-    keywords: [...new Set((Array.isArray(payload.keywords) ? payload.keywords : []).map((item) => String(item).trim()).filter(Boolean))].slice(0, 6),
+    insight: String(payload.insight ?? "").trim().slice(0, 2000),
+    keywords: [...new Set((Array.isArray(payload.keywords) ? payload.keywords : []).map((item) => String(item).trim()).filter(Boolean))].slice(0, 12),
     figureCaption: String(payload.figureCaption ?? "").trim().slice(0, 500),
   };
 }
@@ -122,15 +127,16 @@ export async function GET(request: Request) {
   const status = new URL(request.url).searchParams.get("status") ?? "pending";
   if (status !== "approved") {
     const rows = await getDb().select().from(storedPapers).where(eq(storedPapers.status, status)).orderBy(desc(storedPapers.createdAt)).limit(200);
-    return Response.json({ papers: rows.map(storedToPaper) });
+    return Response.json({ papers: rows.map(storedToPaper) }, { headers: { "Cache-Control": "no-store" } });
   }
   const [stored, edits] = await Promise.all([
     getDb().select().from(storedPapers).where(eq(storedPapers.status, "approved")).orderBy(desc(storedPapers.createdAt)).limit(500),
     getDb().select().from(paperEdits).limit(500),
   ]);
   const overrides = Object.fromEntries(edits.map((edit) => [edit.slug, parseJson<PaperOverride>(edit.data, {})]));
-  const curated = applyPaperOverrides(curatedPapers, overrides).map((paper) => ({ ...paper, recordType: "curated" as const, classifications: getClassifications(paper), figureKeys: overrides[paper.slug]?._figureKeys ?? [], submitterName: "批量导入", submitterEmail: "" }));
-  return Response.json({ papers: [...curated, ...stored.map(storedToPaper)] });
+  const curated = applyPaperOverrides(curatedPapers, overrides).map((paper) => { const figureKeys = overrides[paper.slug]?._figureKeys ?? []; return { ...paper, recordType: "curated" as const, classifications: getClassifications(paper), figureKeys, figureImageUrls: figureKeys.map((_, index) => `/api/papers/${encodeURIComponent(paper.slug)}/figure?index=${index}`), keyFigureIndex: Math.max(0, figureKeys.indexOf(overrides[paper.slug]?._keyFigureKey ?? "")), figureCaptions: paper.figureCaptions ?? (paper.figureCaption ? [paper.figureCaption] : []), submitterName: "批量导入", submitterEmail: "" }; });
+  const combined = [...curated, ...stored.map(storedToPaper)].sort((a, b) => new Date(paperAddedAt(b)).getTime() - new Date(paperAddedAt(a)).getTime());
+  return Response.json({ papers: combined }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(request: Request) {

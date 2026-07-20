@@ -31,9 +31,12 @@ export type Paper = {
   insight: string;
   keywords: string[];
   figureCaption: string;
+  figureCaptions?: string[];
   figureType: "ring" | "modulator" | "laser";
   accent: string;
   figureImageUrl?: string;
+  figureImageUrls?: string[];
+  keyFigureIndex?: number;
   pdfUrl?: string;
   sourceUrl?: string;
   doi?: string;

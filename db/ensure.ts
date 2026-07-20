@@ -28,6 +28,7 @@ export function ensureDatabase() {
         source_url text DEFAULT '' NOT NULL,
         file_key text,
         figure_keys text DEFAULT '[]' NOT NULL,
+        figure_captions text DEFAULT '[]' NOT NULL,
         key_figure_key text,
         figure_caption text DEFAULT '' NOT NULL,
         submitter_name text DEFAULT '匿名投稿者' NOT NULL,
@@ -64,12 +65,28 @@ export function ensureDatabase() {
         changes text DEFAULT '[]' NOT NULL,
         created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
       )`),
+      d1.prepare(`CREATE TABLE IF NOT EXISTS journals (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        full_name text NOT NULL UNIQUE,
+        abbreviation text DEFAULT '' NOT NULL,
+        aliases text DEFAULT '[]' NOT NULL,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`),
+      d1.prepare(`CREATE TABLE IF NOT EXISTS taxonomy_items (
+        id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+        kind text NOT NULL,
+        name text NOT NULL,
+        parent text DEFAULT '' NOT NULL,
+        active integer DEFAULT 1 NOT NULL,
+        created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )`),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_category_idx ON papers (category)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_status_idx ON papers (status)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS papers_created_at_idx ON papers (created_at)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS comments_paper_slug_idx ON comments (paper_slug)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS institutions_normalized_name_idx ON institutions (normalized_name)"),
       d1.prepare("CREATE INDEX IF NOT EXISTS paper_audit_logs_slug_idx ON paper_audit_logs (paper_slug)"),
+      d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS taxonomy_items_identity_idx ON taxonomy_items (kind, parent, name)"),
     ]);
     const paperColumns = await d1.prepare("PRAGMA table_info(papers)").all<{ name: string }>();
     if (!paperColumns.results.some((column) => column.name === "author_details")) {
@@ -86,6 +103,9 @@ export function ensureDatabase() {
     }
     if (!paperColumns.results.some((column) => column.name === "upload_token")) {
       await d1.prepare("ALTER TABLE papers ADD COLUMN upload_token text DEFAULT '' NOT NULL").run();
+    }
+    if (!paperColumns.results.some((column) => column.name === "figure_captions")) {
+      await d1.prepare("ALTER TABLE papers ADD COLUMN figure_captions text DEFAULT '[]' NOT NULL").run();
     }
   })().catch((error) => { initialized = undefined; throw error; });
   return initialized;

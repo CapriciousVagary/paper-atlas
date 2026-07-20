@@ -15,9 +15,10 @@ function publishedScore(value: string) {
 export default function BrowseClient({ initialQuery }: { initialQuery: Query }) {
   const [uploaded, setUploaded] = useState<Paper[]>([]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Paper>>>({});
+  const [managedCategories, setManagedCategories] = useState<Array<{ name: string; subcategories: string[] }>>([]);
   const [currentTime] = useState(() => Date.now());
   useEffect(() => {
-    const loadPapers = () => fetch(`/api/papers?refresh=${Date.now()}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : { papers: [] }).then((data) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); }).catch(() => undefined);
+    const loadPapers = () => Promise.all([fetch(`/api/papers?refresh=${Date.now()}`, { cache: "no-store" }), fetch("/api/metadata", { cache: "no-store" })]).then(async ([response, metadataResponse]) => ({ data: response.ok ? await response.json() : { papers: [] }, metadata: metadataResponse.ok ? await metadataResponse.json() : {} })).then(({ data, metadata }) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); setManagedCategories(metadata.categories ?? []); }).catch(() => undefined);
     void loadPapers();
     const refresh = () => { if (document.visibilityState === "visible") void loadPapers(); };
     const timer = window.setInterval(refresh, 30_000);
@@ -33,7 +34,7 @@ export default function BrowseClient({ initialQuery }: { initialQuery: Query }) 
   const sort = initialQuery.sort === "published" ? "published" : "added";
   const page = Math.max(1, Number.parseInt(initialQuery.page ?? "1", 10) || 1);
 
-  const categoryNames = [...new Set([...categories.map((item) => item.name), ...allPapers.flatMap((paper) => getClassifications(paper).map((item) => item.category))])];
+  const categoryNames = [...new Set([...(managedCategories.length ? managedCategories.map((item) => item.name) : categories.map((item) => item.name)), ...allPapers.flatMap((paper) => getClassifications(paper).map((item) => item.category))])];
   const categoryPapers = category ? allPapers.filter((paper) => hasClassification(paper, category)) : allPapers;
   const subcategories = [...new Set(categoryPapers.flatMap((paper) => getClassifications(paper).filter((item) => !category || item.category === category).map((item) => item.subcategory)))];
   const subcategoryPapers = subcategory ? categoryPapers.filter((paper) => hasClassification(paper, category || undefined, subcategory)) : categoryPapers;
@@ -80,7 +81,7 @@ export default function BrowseClient({ initialQuery }: { initialQuery: Query }) 
         <div className="browse-paper-list">{visible.map((paper) => {
           const keyAuthors = getAuthorDetails(paper).filter((item) => item.role !== "other");
           const addedRecently = currentTime - new Date(paperAddedAt(paper)).getTime() <= 3 * 24 * 60 * 60 * 1000;
-          return <article key={paper.slug}><div className="browse-paper-meta"><span>{paper.category}</span><i>{paper.subcategory}</i><b>{paper.journal} · {paper.published}</b>{addedRecently && <em>新上传</em>}</div><h2><Link href={`/papers/${paper.slug}`}>{paper.title}</Link></h2>{paper.titleZh && <p>{paper.titleZh}</p>}<div className="browse-authors">{keyAuthors.length ? keyAuthors.map((item) => <span key={`${item.role}-${item.name}`}><b>{authorRoleLabels[item.role]}</b>{item.name}</span>) : <span>作者待补充</span>}</div>{paper.insight && <div className="browse-insight"><b>一句话要点</b><span>{paper.insight}</span></div>}<div className="browse-tags">{(paper.keywords ?? []).slice(0, 6).map((keyword) => <Link href={href({ tag: keyword, page: "1" })} key={keyword}>#{keyword}</Link>)}</div></article>;
+          return <article key={paper.slug}><div className="browse-paper-meta"><span>{paper.category}</span><i>{paper.subcategory}</i><b>{paper.journal} · {paper.published}</b>{addedRecently && <em>新上传</em>}</div><h2><Link href={`/papers/${paper.slug}`}>{paper.title}</Link></h2>{paper.titleZh && <p>{paper.titleZh}</p>}<div className="browse-authors">{keyAuthors.length ? keyAuthors.map((item) => <span key={`${item.role}-${item.name}`}><b>{authorRoleLabels[item.role]}</b>{item.name}</span>) : <span>作者待补充</span>}</div>{paper.insight && <div className="browse-insight"><b>几句话要点</b><span>{paper.insight}</span></div>}<div className="browse-tags">{(paper.keywords ?? []).slice(0, 12).map((keyword) => <Link href={href({ tag: keyword, page: "1" })} key={keyword}>#{keyword}</Link>)}</div></article>;
         })}</div>
         {!visible.length && <div className="empty-state"><strong>当前筛选下暂无论文</strong><span>可以移除一个小类、标签或作者筛选条件。</span></div>}
         {pageCount > 1 && <nav className="pagination" aria-label="论文分页">{currentPage > 1 && <Link href={href({ page: String(currentPage - 1) })}>← 上一页</Link>}{Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => <Link className={number === currentPage ? "active" : ""} href={href({ page: String(number) })} key={number}>{number}</Link>)}{currentPage < pageCount && <Link href={href({ page: String(currentPage + 1) })}>下一页 →</Link>}</nav>}

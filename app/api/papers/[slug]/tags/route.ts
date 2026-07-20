@@ -15,7 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const [paper] = await db.select().from(papers).where(eq(papers.slug, slug)).limit(1);
   if (!paper || paper.status !== "approved") return Response.json({ error: "论文不存在" }, { status: 404 });
   const current = JSON.parse(paper.tags || "[]") as string[];
-  const tags = [...new Set([...current, tag])].slice(0, 6);
+  const tags = [...new Set([...current, tag])].slice(0, 12);
   await db.update(papers).set({ tags: JSON.stringify(tags) }).where(eq(papers.id, paper.id));
   return Response.json({ tags });
 }

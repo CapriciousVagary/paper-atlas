@@ -10,6 +10,8 @@ type Duplicate = { slug: string; title: string; titleZh?: string; journal?: stri
 type AuthorRow = AuthorDetail & { id: string };
 type InstitutionOption = { fullName: string; aliases: string[] };
 type ExtraClassification = { id: string; category: string; subcategory: string };
+type CategoryOption = { name: string; subcategories: string[] };
+type FigureDraft = { file: File; url: string; caption: string };
 
 const initialAuthors: AuthorRow[] = [
   { id: "first", role: "first", name: "", institution: "" },
@@ -23,8 +25,8 @@ export default function UploadForm() {
   const [subcategoryChoice, setSubcategoryChoice] = useState(categories[0].subcategories[0]);
   const [customCategory, setCustomCategory] = useState("");
   const [customSubcategory, setCustomSubcategory] = useState("");
-  const [figures, setFigures] = useState<Array<{ file: File; url: string }>>([]);
-  const figuresRef = useRef<Array<{ file: File; url: string }>>([]);
+  const [figures, setFigures] = useState<FigureDraft[]>([]);
+  const figuresRef = useRef<FigureDraft[]>([]);
   const [draggingFigures, setDraggingFigures] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [draggingPdf, setDraggingPdf] = useState(false);
@@ -38,11 +40,14 @@ export default function UploadForm() {
   const [authors, setAuthors] = useState<AuthorRow[]>(initialAuthors);
   const [institutionOptions, setInstitutionOptions] = useState<InstitutionOption[]>([]);
   const [extraClassifications, setExtraClassifications] = useState<ExtraClassification[]>([]);
-  const [journalOptions, setJournalOptions] = useState(() => [...new Set(papers.map((paper) => paper.journal).filter((name) => name && name !== "待补充"))].sort((a, b) => a.localeCompare(b)));
+  const [tags, setTags] = useState([""]);
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>(() => categories.map((item) => ({ name: item.name, subcategories: item.subcategories })));
+  const [journalOptions, setJournalOptions] = useState<Array<{ fullName: string; abbreviation: string }>>(() => [...new Set(papers.map((paper) => paper.journal).filter((name) => name && name !== "待补充"))].sort((a, b) => a.localeCompare(b)).map((fullName) => ({ fullName, abbreviation: "" })));
 
   const subcategoryOptions = useMemo(
-    () => categories.find((item) => item.name === categoryChoice)?.subcategories ?? [],
-    [categoryChoice],
+    () => categoryOptions.find((item) => item.name === categoryChoice)?.subcategories ?? [],
+    [categoryChoice, categoryOptions],
   );
   const resolvedCategory = categoryChoice === CUSTOM ? customCategory.trim() : categoryChoice;
   const resolvedSubcategory = subcategoryChoice === CUSTOM || categoryChoice === CUSTOM ? customSubcategory.trim() : subcategoryChoice;
@@ -51,9 +56,10 @@ export default function UploadForm() {
     setFigures((current) => {
       const accepted = incoming.filter((file) => ["image/jpeg", "image/png", "image/webp"].includes(file.type));
       const seen = new Set(current.map((item) => `${item.file.name}\u0000${item.file.size}\u0000${item.file.lastModified}`));
+      const captions = new Map(current.map((item) => [`${item.file.name}\u0000${item.file.size}\u0000${item.file.lastModified}`, item.caption]));
       const files = [...current.map((item) => item.file), ...accepted.filter((file) => !seen.has(`${file.name}\u0000${file.size}\u0000${file.lastModified}`))].slice(0, 8);
       current.forEach((item) => URL.revokeObjectURL(item.url));
-      return files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+      return files.map((file) => ({ file, url: URL.createObjectURL(file), caption: captions.get(`${file.name}\u0000${file.size}\u0000${file.lastModified}`) ?? "" }));
     });
   }, []);
 
@@ -63,10 +69,12 @@ export default function UploadForm() {
   useEffect(() => { void loadInstitutions(""); }, []);
 
   useEffect(() => {
-    fetch("/api/papers").then((response) => response.ok ? response.json() : { papers: [] }).then((data) => {
-      const names = (data.papers ?? []).map((paper: { journal?: string }) => paper.journal).filter((name: string | undefined): name is string => Boolean(name && name !== "待补充"));
-      setJournalOptions((current) => [...new Set([...current, ...names])].sort((a, b) => a.localeCompare(b)));
+    fetch("/api/metadata", { cache: "no-store" }).then((response) => response.ok ? response.json() : {}).then((data) => {
+      if (data.categories?.length) { setCategoryOptions(data.categories); if (!data.categories.some((item: CategoryOption) => item.name === categoryChoice)) { setCategoryChoice(data.categories[0].name); setSubcategoryChoice(data.categories[0].subcategories[0] ?? CUSTOM); } }
+      setJournalOptions(data.journals ?? []); setTagOptions(data.tags ?? []); setInstitutionOptions(data.institutions ?? []);
     }).catch(() => undefined);
+    // Initial category is stable; metadata refresh only corrects it when an option was removed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -102,14 +110,14 @@ export default function UploadForm() {
 
   function chooseCategory(value: string) {
     setCategoryChoice(value);
-    const first = categories.find((item) => item.name === value)?.subcategories[0] ?? CUSTOM;
+    const first = categoryOptions.find((item) => item.name === value)?.subcategories[0] ?? CUSTOM;
     setSubcategoryChoice(first);
   }
 
   function removeFigure(index: number) {
     setFigures((current) => {
       current.forEach((item) => URL.revokeObjectURL(item.url));
-      return current.filter((_, itemIndex) => itemIndex !== index).map((item) => ({ file: item.file, url: URL.createObjectURL(item.file) }));
+      return current.filter((_, itemIndex) => itemIndex !== index).map((item) => ({ file: item.file, url: URL.createObjectURL(item.file), caption: item.caption }));
     });
     setKeyFigureIndex((current) => current === index ? 0 : current > index ? current - 1 : current);
   }
@@ -153,6 +161,7 @@ export default function UploadForm() {
     form.set("confirmDuplicate", duplicateConfirmed ? "1" : "0");
     form.set("authorDetails", JSON.stringify(authors.filter((author) => author.name.trim()).map((author) => ({ name: author.name, role: author.role, institution: author.institution, aliases: author.aliases, note: author.note }))));
     form.set("classifications", JSON.stringify(extraClassifications.filter((item) => item.category.trim() && item.subcategory.trim())));
+    form.set("tags", tags.map((item) => item.trim()).filter(Boolean).join("\n"));
     form.delete("file");
     form.delete("figures");
     const response = await fetch("/api/papers", { method: "POST", body: form });
@@ -175,7 +184,7 @@ export default function UploadForm() {
           setStatus(`正在上传关键图 ${index + 1}/${figures.length}：${item.file.name}`);
           figureKeys.push(await uploadFileInChunks({ file: item.file, slug, kind: "figure", uploadToken, onProgress: (progress) => setStatus(`关键图 ${index + 1}/${figures.length}：${Math.round(progress * 100)}%`) }));
         }
-        const finalize = await fetch("/api/uploads/finalize", { method: "POST", headers: { "Content-Type": "application/json", "x-upload-token": uploadToken }, body: JSON.stringify({ slug, pdfKey, figureKeys, keyFigureIndex, figureCaption: String(form.get("figureCaption") ?? "") }) });
+        const finalize = await fetch("/api/uploads/finalize", { method: "POST", headers: { "Content-Type": "application/json", "x-upload-token": uploadToken }, body: JSON.stringify({ slug, pdfKey, figureKeys, figureCaptions: figures.map((item) => item.caption), keyFigureIndex }) });
         const finalizeData = await finalize.json().catch(() => ({}));
         if (!finalize.ok) throw new Error(finalizeData.error ?? "附件写回论文条目失败");
         setSubmitted(true); setStatus("投稿和附件均已提交，等待管理员审核。");
@@ -207,7 +216,7 @@ export default function UploadForm() {
 
         <div className="form-section-title"><span>02</span><div><b>基础信息</b><small>请以论文原文为准</small></div></div>
         <label className="field-label">论文标题<input name="title" required value={title} onChange={(event) => { setTitle(event.target.value); setDuplicateConfirmed(false); }} placeholder="英文原始标题" /></label>
-        <div className="form-grid"><label className="field-label">期刊名称<input name="journal" list="journal-options" placeholder="选择已有期刊或直接输入全称" /><datalist id="journal-options">{journalOptions.map((journal) => <option value={journal} key={journal} />)}</datalist><small className="field-help">输入时会提示已收录期刊，也允许填写新的期刊名称。</small></label><label className="field-label">发表年月<input name="published" type="month" /><small className="field-help">使用月份选择器；不确定时可暂时留空。</small></label></div>
+        <div className="form-grid"><label className="field-label">期刊名称<input name="journal" list="journal-options" placeholder="选择已有期刊或直接输入全称" /><datalist id="journal-options">{journalOptions.flatMap((journal) => [<option value={journal.fullName} key={journal.fullName}>{journal.abbreviation}</option>, ...(journal.abbreviation ? [<option value={journal.abbreviation} key={`${journal.fullName}-abbr`}>{journal.fullName}</option>] : [])])}</datalist><small className="field-help">可用期刊全称或简称联想；也允许填写新的期刊名称。</small></label><label className="field-label">发表年月<input name="published" type="month" /><small className="field-help">使用月份选择器；不确定时可暂时留空。</small></label></div>
         {duplicates.length > 0 && <div className="duplicate-warning"><div><b>可能已经收录</b><span>标题或 DOI 与现有条目接近，请先预览再判断。</span></div>{duplicates.map((paper) => <Link href={`/papers/${paper.slug}`} target="_blank" key={paper.slug}><span>{paper.matchReason} · {Math.round(paper.score * 100)}%</span><strong>{paper.title}</strong><small>{paper.journal || "期刊待补充"} · {paper.published || "年月待补充"}　预览本站详情 ↗</small></Link>)}<label><input type="checkbox" checked={duplicateConfirmed} onChange={(event) => setDuplicateConfirmed(event.target.checked)} />我已查看，确认仍要继续投稿</label></div>}
         <div className="author-editor">
           <div className="author-editor-heading"><div><b>关键作者与单位（可选）</b><small>默认展示第一作者、共同一作、通讯作者和投稿者重点关注的作者</small></div><button type="button" onClick={() => addAuthor()}>＋ 添加作者</button></div>
@@ -228,7 +237,7 @@ export default function UploadForm() {
         <div className="form-section-title"><span>03</span><div><b>分类与标签</b><small>列表没有合适项时可直接新增</small></div></div>
         <div className="form-grid">
           <label className="field-label">大类
-            <select value={categoryChoice} onChange={(event) => chooseCategory(event.target.value)}>{categories.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}<option value={CUSTOM}>＋ 自定义大类</option></select>
+            <select value={categoryChoice} onChange={(event) => chooseCategory(event.target.value)}>{categoryOptions.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}<option value={CUSTOM}>＋ 自定义大类</option></select>
             {categoryChoice === CUSTOM && <input value={customCategory} onChange={(event) => setCustomCategory(event.target.value)} placeholder="输入新的大类名称" required />}
           </label>
           <label className="field-label">小类
@@ -236,17 +245,16 @@ export default function UploadForm() {
             {(subcategoryChoice === CUSTOM || categoryChoice === CUSTOM) && <input value={customSubcategory} onChange={(event) => setCustomSubcategory(event.target.value)} placeholder="输入新的小类名称" required />}
           </label>
         </div>
-        <div className="multi-class-editor"><div><b>其他所属分类（可选）</b><button type="button" onClick={() => setExtraClassifications((current) => [...current, { id: `class-${Date.now()}`, category: "", subcategory: "" }])}>＋ 添加另一分类</button></div><p>同一论文可属于多个大类或小类；每个所属分类都会参与计数与筛选。</p><datalist id="category-options">{categories.map((item) => <option value={item.name} key={item.name} />)}</datalist>{extraClassifications.map((item) => <div className="multi-class-row" key={item.id}><input list="category-options" value={item.category} onChange={(event) => setExtraClassifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, category: event.target.value } : entry))} placeholder="大类（可新建）" /><input value={item.subcategory} onChange={(event) => setExtraClassifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, subcategory: event.target.value } : entry))} placeholder="小类（可新建）" /><button type="button" onClick={() => setExtraClassifications((current) => current.filter((entry) => entry.id !== item.id))}>×</button></div>)}</div>
-        <label className="field-label">标签关键词<input name="tags" placeholder="微环, WDM, 矩阵乘法" /><small className="field-help">标签尽量精简，用逗号分隔，最多 6 个；论文发布后仍可继续补充。</small></label>
+        <div className="multi-class-editor"><div><b>其他所属分类（可选）</b><button type="button" onClick={() => setExtraClassifications((current) => [...current, { id: `class-${Date.now()}`, category: "", subcategory: "" }])}>＋ 添加另一分类</button></div><p>同一论文可属于多个大类或小类；每个所属分类都会参与计数与筛选。</p><datalist id="category-options">{categoryOptions.map((item) => <option value={item.name} key={item.name} />)}</datalist>{extraClassifications.map((item) => <div className="multi-class-row" key={item.id}><input list="category-options" value={item.category} onChange={(event) => setExtraClassifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, category: event.target.value } : entry))} placeholder="大类（可新建）" /><input value={item.subcategory} onChange={(event) => setExtraClassifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, subcategory: event.target.value } : entry))} placeholder="小类（可新建）" /><button type="button" onClick={() => setExtraClassifications((current) => current.filter((entry) => entry.id !== item.id))}>×</button></div>)}</div>
+        <div className="tag-editor"><div className="author-editor-heading"><div><b>标签关键词</b><small>每个框填写一个标签，无需输入逗号</small></div><button type="button" onClick={() => setTags((current) => [...current, ""])}>＋ 添加标签</button></div><datalist id="tag-options">{tagOptions.map((tag) => <option value={tag} key={tag} />)}</datalist><div className="tag-input-rows">{tags.map((tag, index) => <div key={index}><input list="tag-options" value={tag} onChange={(event) => setTags((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={index === 0 ? "例如：微环" : "下一个标签"} /><button type="button" onClick={() => setTags((current) => current.length === 1 ? [""] : current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}</div></div>
 
         <div className="form-section-title"><span>04</span><div><b>回顾内容</b><small>这是日后快速回忆论文的核心</small></div></div>
         <label className="field-label">中文摘要<textarea name="abstractZh" rows={6} required placeholder="建议保留研究目的、方法、主要结果与结论" /></label>
-        <label className="field-label">50字以内创新点<textarea name="insight" rows={2} maxLength={50} required placeholder="一句话说明：它做了什么新的、为什么重要" /></label>
+        <label className="field-label">几句话要点<textarea name="insight" rows={4} required placeholder="简要说明：它做了什么新的、为什么重要，以及最值得回顾的结果" /></label>
 
         <div className="form-section-title"><span>05</span><div><b>关键图表（可选）</b><small>未上传时显示默认示意图；上传多张时可指定主图</small></div></div>
         <label className={`figure-drop ${draggingFigures ? "dragging" : ""}`} tabIndex={0} onDragEnter={(event) => { event.preventDefault(); setDraggingFigures(true); }} onDragOver={(event) => { event.preventDefault(); setDraggingFigures(true); }} onDragLeave={() => setDraggingFigures(false)} onDrop={(event) => { event.preventDefault(); setDraggingFigures(false); addFigureFiles(Array.from(event.dataTransfer.files)); }}><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { addFigureFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /><span>＋ 点击、拖拽或 Ctrl+V 粘贴关键图</span><small>JPG / PNG / WebP，最多 8 张，单张不超过 8 MB；可在页面任意位置直接粘贴图片</small></label>
-        {figures.length > 0 && <div className="figure-picker"><div className="figure-picker-title"><b>已添加 {figures.length} 张 · 选择详情页主图</b><span>不选择时默认第一张</span></div><div className="figure-options">{figures.map((item, index) => <label className={keyFigureIndex === index ? "selected" : ""} key={`${item.file.name}-${index}`}><input type="radio" name="keyFigureChoice" checked={keyFigureIndex === index} onChange={() => setKeyFigureIndex(index)} /><img src={item.url} alt={`关键图候选 ${index + 1}`} /><span><b>图 {index + 1}</b><small>{item.file.name}</small></span><button type="button" onClick={(event) => { event.preventDefault(); removeFigure(index); }} aria-label={`删除图 ${index + 1}`}>×</button></label>)}</div></div>}
-        <label className="field-label">关键图说明<textarea name="figureCaption" rows={2} placeholder="例如：图 3，器件结构及不同波长通道的实验响应" /></label>
+        {figures.length > 0 && <div className="figure-picker"><div className="figure-picker-title"><b>已添加 {figures.length} 张 · 选择详情页主图并逐图填写说明</b><span>不选择时默认第一张</span></div><div className="figure-options">{figures.map((item, index) => <label className={keyFigureIndex === index ? "selected" : ""} key={`${item.file.name}-${index}`}><input type="radio" name="keyFigureChoice" checked={keyFigureIndex === index} onChange={() => setKeyFigureIndex(index)} /><img src={item.url} alt={`关键图候选 ${index + 1}`} /><span><b>图 {index + 1}</b><small>{item.file.name}</small></span><button type="button" onClick={(event) => { event.preventDefault(); removeFigure(index); }} aria-label={`删除图 ${index + 1}`}>×</button></label>)}</div><div className="figure-caption-rows">{figures.map((item, index) => <label key={`caption-${item.file.name}-${index}`}><span>图 {index + 1} 说明{keyFigureIndex === index && <em>主图</em>}</span><textarea rows={2} value={item.caption} onChange={(event) => setFigures((current) => current.map((figure, itemIndex) => itemIndex === index ? { ...figure, caption: event.target.value } : figure))} placeholder="例如：器件结构及不同波长通道的实验响应" /></label>)}</div></div>}
 
         <div className="form-section-title"><span>06</span><div><b>投稿人</b><small>用于审核沟通，不在公开页面显示邮箱</small></div></div>
         <div className="form-grid"><label className="field-label">姓名<input name="submitterName" required placeholder="你的姓名" /></label><label className="field-label">联系邮箱<input name="submitterEmail" type="email" placeholder="可选" /></label></div>

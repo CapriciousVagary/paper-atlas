@@ -13,13 +13,14 @@ export default function Dashboard({ initialQuery = "", initialCategory = "全部
   const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [uploaded, setUploaded] = useState<UploadedPaper[]>([]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Paper>>>({});
+  const [managedCategories, setManagedCategories] = useState<Array<{ name: string; subcategories: string[] }>>([]);
   const [currentTime] = useState(() => Date.now());
   const latestSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const loadPapers = () => fetch(`/api/papers?refresh=${Date.now()}`, { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : { papers: [] }))
-      .then((data) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); })
+    const loadPapers = () => Promise.all([fetch(`/api/papers?refresh=${Date.now()}`, { cache: "no-store" }), fetch("/api/metadata", { cache: "no-store" })])
+      .then(async ([response, metadataResponse]) => ({ data: response.ok ? await response.json() : { papers: [] }, metadata: metadataResponse.ok ? await metadataResponse.json() : {} }))
+      .then(({ data, metadata }) => { setUploaded(data.papers ?? []); setOverrides(data.overrides ?? {}); setManagedCategories(metadata.categories ?? []); })
       .catch(() => undefined);
     void loadPapers();
     const refresh = () => { if (document.visibilityState === "visible") void loadPapers(); };
@@ -32,14 +33,15 @@ export default function Dashboard({ initialQuery = "", initialCategory = "全部
 
   const allPapers = useMemo(() => [...applyPaperOverrides(papers, overrides), ...uploaded] as Paper[], [uploaded, overrides]);
   const displayCategories = useMemo(() => {
-    const items = categories.map((item) => ({ ...item, subcategories: [...item.subcategories] }));
+    const source = managedCategories.length ? managedCategories.map((item) => { const preset = categories.find((entry) => entry.name === item.name); return { name: item.name, subcategories: [...item.subcategories], code: preset?.code ?? "NEW", description: preset?.description ?? "由联合课题组维护的研究方向", tone: preset?.tone ?? "violet" }; }) : categories.map((item) => ({ ...item, subcategories: [...item.subcategories] }));
+    const items = source;
     for (const paper of allPapers) for (const classification of getClassifications(paper)) {
       let category = items.find((item) => item.name === classification.category);
       if (!category) { category = { name: classification.category, code: "NEW", description: "由联合课题组投稿者新增的研究方向", subcategories: [], tone: "violet" }; items.push(category); }
       if (!category.subcategories.includes(classification.subcategory)) category.subcategories.push(classification.subcategory);
     }
     return items;
-  }, [allPapers]);
+  }, [allPapers, managedCategories]);
   const visiblePapers = allPapers.filter((paper) => {
     const inCategory = activeCategory === "全部方向" || hasClassification(paper, activeCategory);
     const haystack = [paper.title, paper.titleZh, paper.journal, ...getClassifications(paper).flatMap((item) => [item.category, item.subcategory]), ...(paper.authors ?? []), ...(paper.keywords ?? [])]
@@ -119,7 +121,7 @@ export default function Dashboard({ initialQuery = "", initialCategory = "全部
                 <h3><Link href={`/papers/${paper.slug}`}>{paper.title}</Link></h3>
                 {paper.titleZh && <p className="paper-title-zh">{paper.titleZh}</p>}
                 <div className="paper-authors">{(paper.authors ?? ["待补充作者"]).join(" · ")}</div>
-                {paper.insight && <div className="insight-strip"><b>一句话创新</b><span>{paper.insight}</span></div>}
+                {paper.insight && <div className="insight-strip"><b>几句话要点</b><span>{paper.insight}</span></div>}
               </div>
               {paper.figureImageUrl ? <div className="paper-visual"><img className="uploaded-key-figure" src={paper.figureImageUrl} alt={`关键图：${paper.title}`} /><Link href={`/papers/${paper.slug}`} aria-label={`查看 ${paper.title}`}>阅读笔记 ↗</Link></div> : paper.figureType ? <div className="paper-visual"><FigurePreview type={paper.figureType} /><Link href={`/papers/${paper.slug}`} aria-label={`查看 ${paper.title}`}>阅读笔记 ↗</Link></div> : <Link className="paper-open" href={`/papers/${paper.slug}`}>打开条目 →</Link>}
             </article>

@@ -19,7 +19,7 @@ function parseJournal(journalValue: string, publishedValue: string) {
 }
 
 function parseTags(value: string) {
-  return [...new Set(value.split(/[，,、#\n]/).map((item) => item.trim()).filter(Boolean).map((item) => item.slice(0, 30)))].slice(0, 6);
+  return [...new Set(value.split(/[，,、#\n]/).map((item) => item.trim()).filter(Boolean).map((item) => item.slice(0, 30)))].slice(0, 12);
 }
 
 const authorRoles = new Set<AuthorRole>(["first", "first_corresponding", "cofirst", "corresponding", "notable", "other"]);
@@ -78,10 +78,12 @@ export async function GET() {
         insight: paper.insight,
         keywords: JSON.parse(paper.tags || "[]"),
         figureCaption: paper.figureCaption,
+        figureCaptions: JSON.parse(paper.figureCaptions || "[]"),
         sourceUrl: paper.sourceUrl || undefined,
         createdAt: paper.createdAt,
         addedAt: paper.reviewedAt || paper.createdAt,
         figureImageUrl: paper.keyFigureKey ? `/api/papers/${encodeURIComponent(paper.slug)}/figure` : undefined,
+        figureImageUrls: JSON.parse(paper.figureKeys || "[]").map((_: string, index: number) => `/api/papers/${encodeURIComponent(paper.slug)}/figure?index=${index}`),
         pdfUrl: paper.fileKey ? `/api/papers/${encodeURIComponent(paper.slug)}/pdf` : undefined,
       })),
       overrides: Object.fromEntries(edits.map((edit) => {
@@ -144,11 +146,12 @@ export async function POST(request: Request) {
       institutions: JSON.stringify(institutions),
       authorDetails: JSON.stringify(authorDetails),
       abstractZh: String(form.get("abstractZh") ?? "").trim(),
-      insight: String(form.get("insight") ?? "").trim().slice(0, 50),
+      insight: String(form.get("insight") ?? "").trim().slice(0, 2000),
       tags: JSON.stringify(tags),
       sourceUrl,
       fileKey: null,
       figureKeys: "[]",
+      figureCaptions: "[]",
       keyFigureKey: null,
       figureCaption: String(form.get("figureCaption") ?? "").trim().slice(0, 500),
       submitterName,
