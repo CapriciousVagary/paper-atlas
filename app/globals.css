@@ -186,6 +186,8 @@ footer { height: 70px; padding: 0 clamp(24px, 7vw, 110px); display: flex; align-
 .existing-media-list img { width: 100%; aspect-ratio: 1.45; border-radius: 7px; object-fit: contain; background: #edf1ee; }
 .existing-media-list span { margin-top: 7px; color: #536b6e; font-size: 9px; }
 .existing-media-list textarea, .editor-media-grid textarea { min-height: 58px; border-radius: 0 0 7px 7px; font-size: 9px; }
+.media-remove { position: absolute; z-index: 3; top: 7px; right: 7px; padding: 5px 8px; border: 0; border-radius: 6px; background: rgba(125,48,43,.9); color: white; cursor: pointer; font-size: 8px; }
+.media-missing { min-height: 110px; display: grid !important; place-items: center; background: #edf1ee; color: #8a9592 !important; }
 .detail-figure-gallery { display: grid; gap: 26px; }
 .detail-figure-gallery figure { margin: 0; }
 

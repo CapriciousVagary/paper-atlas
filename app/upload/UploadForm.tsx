@@ -13,6 +13,10 @@ type ExtraClassification = { id: string; category: string; subcategory: string }
 type CategoryOption = { name: string; subcategories: string[] };
 type FigureDraft = { file: File; url: string; caption: string };
 
+function isTextEditingTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 const initialAuthors: AuthorRow[] = [
   { id: "first", role: "first", name: "", institution: "" },
   { id: "cofirst", role: "cofirst", name: "", institution: "" },
@@ -79,6 +83,7 @@ export default function UploadForm() {
 
   useEffect(() => {
     function pasteImages(event: ClipboardEvent) {
+      if (isTextEditingTarget(event.target)) return;
       const files = Array.from(event.clipboardData?.items ?? []).filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item, index) => {
         const source = item.getAsFile();
         if (!source) return null;

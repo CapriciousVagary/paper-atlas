@@ -17,6 +17,10 @@ type AdminComment = { id: number; author: string; content: string; createdAt: st
 type AuditLog = { id: number; actor: string; action: string; changes: Array<{ field: string; before?: string; after?: string }>; createdAt: string };
 type MediaDraft = { file: File; url: string; caption: string };
 
+function isTextEditingTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 function displayAuditTime(value: string) {
   const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value;
   const date = new Date(normalized);
@@ -43,6 +47,7 @@ export default function AdminReview() {
   const [clearExistingImage, setClearExistingImage] = useState(false);
   const [draggingMedia, setDraggingMedia] = useState(false);
   const [existingMediaUrls, setExistingMediaUrls] = useState<string[]>([]);
+  const [existingFigureKeys, setExistingFigureKeys] = useState<string[]>([]);
   const existingMediaRef = useRef<string[]>([]);
   const [figureCaptions, setFigureCaptions] = useState<string[]>([]);
   const [metadataCategories, setMetadataCategories] = useState<Array<{ name: string; subcategories: string[] }>>([]);
@@ -50,15 +55,20 @@ export default function AdminReview() {
   const [metadataTags, setMetadataTags] = useState<string[]>([]);
 
   const addMediaFiles = useCallback((incoming: File[]) => {
+    const retainedCount = clearExistingImage ? 0 : existingFigureKeys.length;
+    if (clearExistingImage) {
+      existingMediaUrls.forEach((url) => { if (url) URL.revokeObjectURL(url); });
+      setExistingMediaUrls([]); setExistingFigureKeys([]); setFigureCaptions([]); setKeyMediaIndex(0);
+    }
     setMedia((current) => {
       const allowed = incoming.filter((file) => ["image/jpeg", "image/png", "image/webp"].includes(file.type));
       current.forEach((item) => URL.revokeObjectURL(item.url));
       const captions = new Map(current.map((item) => [`${item.file.name}\u0000${item.file.size}`, item.caption]));
-      const files = [...current.map((item) => item.file), ...allowed].slice(0, 8);
+      const files = [...current.map((item) => item.file), ...allowed].slice(0, Math.max(0, 8 - retainedCount));
       return files.map((file) => ({ file, url: URL.createObjectURL(file), caption: captions.get(`${file.name}\u0000${file.size}`) ?? "" }));
     });
     setClearExistingImage(false);
-  }, []);
+  }, [clearExistingImage, existingFigureKeys.length, existingMediaUrls]);
 
   useEffect(() => { mediaRef.current = media; }, [media]);
   useEffect(() => { existingMediaRef.current = existingMediaUrls; }, [existingMediaUrls]);
@@ -79,12 +89,13 @@ export default function AdminReview() {
   useEffect(() => {
     if (!editing) return;
     function pasteImages(event: ClipboardEvent) {
+      if (isTextEditingTarget(event.target)) return;
       const files = Array.from(event.clipboardData?.items ?? []).filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item, index) => {
         const source = item.getAsFile(); if (!source) return null;
         const extension = source.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
         return new File([source], `editor-paste-${Date.now()}-${index + 1}.${extension}`, { type: source.type });
       }).filter((file): file is File => Boolean(file));
-      if (files.length) { event.preventDefault(); addMediaFiles(files); setStatus(`已从剪贴板加入 ${files.length} 张替换图片。`); }
+      if (files.length) { event.preventDefault(); addMediaFiles(files); setStatus(`已从剪贴板追加 ${files.length} 张图片。`); }
     }
     window.addEventListener("paste", pasteImages);
     return () => window.removeEventListener("paste", pasteImages);
@@ -114,7 +125,7 @@ export default function AdminReview() {
   function closeEditor() {
     media.forEach((item) => URL.revokeObjectURL(item.url));
     existingMediaUrls.forEach((url) => URL.revokeObjectURL(url));
-    setEditing(null); setMedia([]); setExistingMediaUrls([]); setComments([]); setAuditLogs([]); setCommentStatus(""); setClearExistingImage(false); setKeyMediaIndex(0); setFigureCaptions([]);
+    setEditing(null); setMedia([]); setExistingMediaUrls([]); setExistingFigureKeys([]); setComments([]); setAuditLogs([]); setCommentStatus(""); setClearExistingImage(false); setKeyMediaIndex(0); setFigureCaptions([]);
   }
 
   async function login(event: FormEvent) { event.preventDefault(); await load(); }
@@ -128,7 +139,7 @@ export default function AdminReview() {
 
   async function beginEdit(paper: AdminPaper) {
     existingMediaUrls.forEach((url) => URL.revokeObjectURL(url));
-    setEditing(structuredClone(paper)); setEditAuthors(structuredClone(paper.authorDetails ?? [])); setEditClassifications(structuredClone(getClassifications(paper))); setMedia([]); setExistingMediaUrls([]); setFigureCaptions(paper.figureCaptions?.length ? [...paper.figureCaptions] : paper.figureCaption ? [paper.figureCaption] : []); setClearExistingImage(false); setKeyMediaIndex(paper.keyFigureIndex ?? 0); setCommentStatus("正在读取评论和图片…");
+    setEditing(structuredClone(paper)); setEditAuthors(structuredClone(paper.authorDetails ?? [])); setEditClassifications(structuredClone(getClassifications(paper))); setMedia([]); setExistingMediaUrls([]); setExistingFigureKeys([...paper.figureKeys]); setFigureCaptions(paper.figureCaptions?.length ? [...paper.figureCaptions] : paper.figureCaption ? [paper.figureCaption] : []); setClearExistingImage(false); setKeyMediaIndex(paper.keyFigureIndex ?? 0); setCommentStatus("正在读取评论和图片…");
     const [response, auditResponse, imageResponses] = await Promise.all([
       fetch(`/api/comments?paperSlug=${encodeURIComponent(paper.slug)}`, { cache: "no-store" }),
       fetch(`/api/admin/audit-logs?slug=${encodeURIComponent(paper.slug)}`, { headers: { "x-admin-key": key }, cache: "no-store" }),
@@ -138,8 +149,22 @@ export default function AdminReview() {
     setComments(data.comments ?? []); setCommentStatus(data.comments?.length ? `共 ${data.comments.length} 条评论或注释` : "暂无评论或注释");
     setAuditLogs(auditData.logs ?? []);
     const urls = await Promise.all(imageResponses.map(async (imageResponse) => imageResponse.ok ? URL.createObjectURL(await imageResponse.blob()) : ""));
-    setExistingMediaUrls(urls.filter(Boolean));
+    setExistingMediaUrls(urls);
     window.setTimeout(() => document.querySelector(".paper-edit-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
+  function removeExistingMedia(index: number) {
+    const url = existingMediaUrls[index]; if (url) URL.revokeObjectURL(url);
+    setExistingMediaUrls((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setExistingFigureKeys((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setFigureCaptions((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setKeyMediaIndex((current) => current === index ? 0 : current > index ? current - 1 : current);
+  }
+
+  function removeNewMedia(index: number) {
+    const combinedIndex = existingFigureKeys.length + index;
+    setMedia((current) => { const removed = current[index]; if (removed) URL.revokeObjectURL(removed.url); return current.filter((_, itemIndex) => itemIndex !== index); });
+    setKeyMediaIndex((current) => current === combinedIndex ? 0 : current > combinedIndex ? current - 1 : current);
   }
 
   async function saveEdit(event: FormEvent) {
@@ -154,10 +179,10 @@ export default function AdminReview() {
     if (!response.ok) { setStatus(data.error ?? "保存失败，请重试。"); return; }
     if (media.length || clearExistingImage || editing.figureKeys.length) {
       setStatus("论文信息已保存，正在更新关键图…");
-      const figureKeys: string[] = [];
+      const uploadedFigureKeys: string[] = [];
       try {
         for (let index = 0; index < media.length; index += 1) {
-          figureKeys.push(await uploadFileInChunks({
+          uploadedFigureKeys.push(await uploadFileInChunks({
             file: media[index].file,
             slug: editing.slug,
             kind: "figure",
@@ -172,7 +197,7 @@ export default function AdminReview() {
       const mediaResponse = await fetch("/api/admin/papers/media", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-key": key, "x-editor-name": editorName },
-        body: JSON.stringify({ slug: editing.slug, recordType: editing.recordType, clear: clearExistingImage, keyFigureIndex: keyMediaIndex, figureCaptions: media.length ? media.map((item) => item.caption) : figureCaptions, figureKeys: media.length ? figureKeys : editing.figureKeys }),
+        body: JSON.stringify({ slug: editing.slug, recordType: editing.recordType, clear: clearExistingImage, keyFigureIndex: keyMediaIndex, figureCaptions: [...figureCaptions, ...media.map((item) => item.caption)], figureKeys: [...existingFigureKeys, ...uploadedFigureKeys] }),
       });
       const mediaData = await mediaResponse.json().catch(() => ({}));
       if (!mediaResponse.ok) { setStatus(`论文文字已保存，但图片更新失败：${mediaData.error ?? "请重试"}`); return; }
@@ -207,7 +232,7 @@ export default function AdminReview() {
     {tab === "metadata" ? <AdminMetadata adminKey={key} editorName={editorName} /> : <div className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、DOI、期刊、作者、分类或标签" /><b>{visiblePapers.length} / {papers.length}</b></div>}
 
     {tab !== "metadata" && editing && <form className="paper-edit-form" onSubmit={saveEdit}><div className="paper-edit-heading"><div><span className="section-kicker">EDIT RECORD · {editing.recordType === "curated" ? "批量导入" : "公开投稿"}</span><h2>修订论文与讨论</h2><p>{editing.slug}</p></div><button type="button" onClick={closeEditor}>关闭</button></div>
-      <div className="editor-summary"><div><span>当前分类</span><b>{getClassifications(editing).map((item) => `${item.category} / ${item.subcategory}`).join("；")}</b></div><div><span>图片</span><b>{editing.figureKeys.length ? `${editing.figureKeys.length} 张` : "默认示意图"}</b></div><div><span>讨论</span><b>{comments.length} 条</b></div></div>
+      <div className="editor-summary"><div><span>当前分类</span><b>{getClassifications(editing).map((item) => `${item.category} / ${item.subcategory}`).join("；")}</b></div><div><span>图片</span><b>{(clearExistingImage ? 0 : existingFigureKeys.length) + media.length ? `${(clearExistingImage ? 0 : existingFigureKeys.length) + media.length} 张` : "默认示意图"}</b></div><div><span>讨论</span><b>{comments.length} 条</b></div></div>
       <section className="audit-history"><div className="editor-section-heading"><div><span>REVIEW LOG</span><h3>审批与修改记录</h3></div><small>最近 {auditLogs.length} 条</small></div>{auditLogs.length ? <div className="audit-list">{auditLogs.map((log) => <article key={log.id}><div className="audit-meta"><b>{log.action}</b><span>{log.actor || "未署名审核者"}</span><time>{displayAuditTime(log.createdAt)}</time></div>{log.changes.length ? <ul>{log.changes.map((change, index) => <li key={`${log.id}-${change.field}-${index}`}><b>{change.field}</b><span>{change.before || "未填写"}</span><i>→</i><span>{change.after || "未填写"}</span></li>)}</ul> : <p>已记录该操作。</p>}</article>)}</div> : <p className="editor-empty">暂无审批日志；本功能启用前的历史操作不会回填。</p>}</section>
       <label>英文标题<input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} required /></label>
       <label>中文标题<input value={editing.titleZh ?? ""} onChange={(event) => setEditing({ ...editing, titleZh: event.target.value })} /></label>
@@ -219,10 +244,10 @@ export default function AdminReview() {
       <label>中文摘要<textarea rows={7} value={editing.abstractZh} onChange={(event) => setEditing({ ...editing, abstractZh: event.target.value })} /></label>
       <label>几句话要点<textarea rows={4} value={editing.insight} onChange={(event) => setEditing({ ...editing, insight: event.target.value })} /></label>
 
-      <section className="editor-media"><div className="editor-section-heading"><div><span>KEY FIGURES</span><h3>关键图与逐图说明</h3></div><small>新上传会替换已有图片；可拖拽或 Ctrl+V 粘贴</small></div>{!clearExistingImage && !media.length && !!existingMediaUrls.length && <div className="existing-media-list">{existingMediaUrls.map((url, index) => <label className={keyMediaIndex === index ? "selected" : ""} key={url}><input type="radio" name="existingKeyFigure" checked={keyMediaIndex === index} onChange={() => setKeyMediaIndex(index)} /><img src={url} alt={`当前关键图 ${index + 1}`} /><span>图 {index + 1} 说明{keyMediaIndex === index ? " · 主图" : ""}</span><textarea rows={2} value={figureCaptions[index] ?? ""} onChange={(event) => setFigureCaptions((current) => Array.from({ length: existingMediaUrls.length }, (_, itemIndex) => itemIndex === index ? event.target.value : current[itemIndex] ?? ""))} /></label>)}</div>}
-        <label className={`editor-media-drop ${draggingMedia ? "dragging" : ""}`} onDragEnter={(event) => { event.preventDefault(); setDraggingMedia(true); }} onDragOver={(event) => { event.preventDefault(); setDraggingMedia(true); }} onDragLeave={() => setDraggingMedia(false)} onDrop={(event) => { event.preventDefault(); setDraggingMedia(false); addMediaFiles(Array.from(event.dataTransfer.files)); }}><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { addMediaFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /><b>点击、拖拽或 Ctrl+V 添加替换图片</b><small>最多 8 张，单张不超过 8 MB</small></label>
-        {!!media.length && <div className="editor-media-grid">{media.map((item, index) => <label className={keyMediaIndex === index ? "selected" : ""} key={`${item.file.name}-${index}`}><input type="radio" checked={keyMediaIndex === index} onChange={() => setKeyMediaIndex(index)} /><img src={item.url} alt={`替换图 ${index + 1}`} /><span>{item.file.name}</span><textarea rows={2} value={item.caption} onChange={(event) => setMedia((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, caption: event.target.value } : entry))} placeholder={`图 ${index + 1} 说明`} /></label>)}</div>}
-        <label className="clear-image"><input type="checkbox" checked={clearExistingImage} onChange={(event) => { setClearExistingImage(event.target.checked); if (event.target.checked) { media.forEach((item) => URL.revokeObjectURL(item.url)); setMedia([]); } }} />清除已有图片，恢复默认示意图</label>
+      <section className="editor-media"><div className="editor-section-heading"><div><span>KEY FIGURES</span><h3>关键图与逐图说明</h3></div><small>可逐张删除、继续追加并重新指定主图</small></div>{!clearExistingImage && !!existingFigureKeys.length && <div className="existing-media-list">{existingFigureKeys.map((figureKey, index) => <label className={keyMediaIndex === index ? "selected" : ""} key={figureKey}><input type="radio" name="keyFigure" checked={keyMediaIndex === index} onChange={() => setKeyMediaIndex(index)} />{existingMediaUrls[index] ? <img src={existingMediaUrls[index]} alt={`当前关键图 ${index + 1}`} /> : <span className="media-missing">图片加载失败</span>}<button className="media-remove" type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); removeExistingMedia(index); }}>删除</button><span>图 {index + 1} 说明{keyMediaIndex === index ? " · 主图" : ""}</span><textarea rows={2} value={figureCaptions[index] ?? ""} onChange={(event) => setFigureCaptions((current) => Array.from({ length: existingFigureKeys.length }, (_, itemIndex) => itemIndex === index ? event.target.value : current[itemIndex] ?? ""))} /></label>)}</div>}
+        <label tabIndex={0} className={`editor-media-drop ${draggingMedia ? "dragging" : ""}`} onDragEnter={(event) => { event.preventDefault(); setDraggingMedia(true); }} onDragOver={(event) => { event.preventDefault(); setDraggingMedia(true); }} onDragLeave={() => setDraggingMedia(false)} onDrop={(event) => { event.preventDefault(); setDraggingMedia(false); addMediaFiles(Array.from(event.dataTransfer.files)); }}><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { addMediaFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} /><b>点击、拖拽或 Ctrl+V 追加图片</b><small>保留未删除的已有图片；文字框内粘贴不会触发图片上传</small></label>
+        {!!media.length && <div className="editor-media-grid">{media.map((item, index) => { const combinedIndex = existingFigureKeys.length + index; return <label className={keyMediaIndex === combinedIndex ? "selected" : ""} key={`${item.file.name}-${index}`}><input type="radio" name="keyFigure" checked={keyMediaIndex === combinedIndex} onChange={() => setKeyMediaIndex(combinedIndex)} /><img src={item.url} alt={`新增图 ${index + 1}`} /><button className="media-remove" type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); removeNewMedia(index); }}>删除</button><span>新增图 {index + 1}{keyMediaIndex === combinedIndex ? " · 主图" : ""}</span><textarea rows={2} value={item.caption} onChange={(event) => setMedia((current) => current.map((entry, itemIndex) => itemIndex === index ? { ...entry, caption: event.target.value } : entry))} placeholder={`新增图 ${index + 1} 说明`} /></label>; })}</div>}
+        <label className="clear-image"><input type="checkbox" checked={clearExistingImage} onChange={(event) => { setClearExistingImage(event.target.checked); if (event.target.checked) { media.forEach((item) => URL.revokeObjectURL(item.url)); setMedia([]); setKeyMediaIndex(0); } }} />清除全部图片，恢复默认示意图</label>
       </section>
 
       <section className="editor-comments"><div className="editor-section-heading"><div><span>DISCUSSION</span><h3>评论与注释管理</h3></div><small>{commentStatus}</small></div>{comments.map((comment) => <article key={comment.id}><div><input value={comment.author} onChange={(event) => setComments((current) => current.map((item) => item.id === comment.id ? { ...item, author: event.target.value } : item))} /><time>{comment.createdAt}</time></div><textarea rows={3} value={comment.content} onChange={(event) => setComments((current) => current.map((item) => item.id === comment.id ? { ...item, content: event.target.value } : item))} /><div className="comment-admin-actions"><button type="button" className="danger" onClick={() => deleteComment(comment)}>删除</button><button type="button" onClick={() => saveComment(comment)}>保存评论</button></div></article>)}{!comments.length && <p className="editor-empty">该论文暂时没有评论或补充注释。</p>}</section>
